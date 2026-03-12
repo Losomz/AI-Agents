@@ -1,4 +1,4 @@
-﻿---
+---
 name: cocos-general
 description: General Cocos workflow skill. V1 focuses on stable prefab creation from an internal template, then validation before opening in Cocos Creator.
 ---
@@ -207,6 +207,3 @@ node skills/cocos-general/scripts/validate-prefab-ids.mjs <path-to-prefab>
 - Quick start (Chinese): [references/quickstart.zh-CN.md](./references/quickstart.zh-CN.md)
 - Module index: [references/module-index.md](./references/module-index.md)
 - Deep prefab repair checklist: [references/prefab-rebuild-checklist.md](./references/prefab-rebuild-checklist.md)
-
-
-
