@@ -1,4 +1,4 @@
-# AI-Agents
+# AgentFramework
 
 这是一个个人 AI Agent 资产仓库，用来集中管理可复用的 agent 规则、skills、提示模板、工作流和技术栈约定。
 
