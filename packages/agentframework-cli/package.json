@@ -1,0 +1,19 @@
+{
+  "name": "@losomz/agentframework-cli",
+  "version": "0.3.0",
+  "description": "Bootstrap CLI that syncs and launches the latest AgentFramework runtime from git.",
+  "type": "module",
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "bin": {
+    "agent-menu": "bin/agent-menu.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
