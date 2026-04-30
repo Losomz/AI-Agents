@@ -1,6 +1,6 @@
 ---
 description: git commit and push
-subtask: true
+agent: general
 ---
 
 commit and push
