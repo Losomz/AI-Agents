@@ -152,15 +152,22 @@ agent: general
 
 5. **保存文件**
 
+6. **提交 changelog 文件**：
+   ```bash
+   git add docs/CHANGELOG.md
+   git commit -m "chore: 发布 v0.1.0 版本更新日志"
+   ```
+
 ### 5. 创建 Git Tag
 
-1. **创建 tag**：
+1. **创建 tag**（在刚才包含 changelog 的 commit 上）：
    ```bash
    git tag v0.1.0
    ```
 
-2. **推送 tag**（可选）：
+2. **推送 commit 和 tag**：
    ```bash
+   git push
    git push origin v0.1.0
    ```
 
@@ -168,8 +175,9 @@ agent: general
 
 - 显示生成的更改日志内容
 - 显示版本号和日期
-- 告知用户文件已更新：`docs/CHANGELOG.md`
+- 告知用户文件已更新并提交：`docs/CHANGELOG.md`
 - 告知用户已创建 Git tag：`v0.1.0`
+- 告知用户已推送到远程仓库
 
 ## 注意事项
 
