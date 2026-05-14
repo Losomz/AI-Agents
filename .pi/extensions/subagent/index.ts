@@ -217,20 +217,22 @@ async function writePromptToTempFile(agentName: string, prompt: string): Promise
 	return { dir: tmpDir, filePath };
 }
 
-function getPiInvocation(args: string[]): { command: string; args: string[] } {
+function getPiInvocation(args: string[]): { command: string; args: string[]; shell: boolean } {
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
 	if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-		return { command: process.execPath, args: [currentScript, ...args] };
+		return { command: process.execPath, args: [currentScript, ...args], shell: false };
 	}
 
 	const execName = path.basename(process.execPath).toLowerCase();
 	const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
 	if (!isGenericRuntime) {
-		return { command: process.execPath, args };
+		return { command: process.execPath, args, shell: false };
 	}
 
-	return { command: "pi", args };
+	// On Windows, use shell to properly resolve npm global commands
+	const isWindows = process.platform === "win32";
+	return { command: "pi", args, shell: isWindows };
 }
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
@@ -305,7 +307,7 @@ async function runSingleAgent(
 			const invocation = getPiInvocation(args);
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: cwd ?? defaultCwd,
-				shell: false,
+				shell: invocation.shell,
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 			let buffer = "";

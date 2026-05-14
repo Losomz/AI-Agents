@@ -1,0 +1,53 @@
+{
+  "providers": {
+    "yunyi-claude": {
+      "baseUrl": "https://yunyi.cfd/claude/v1",
+      "api": "openai-completions",
+      "apiKey": "DBWGSPEW-UADK-WQBN-3ZDE-9G1QQ9HVW2F6",
+      "models": [
+        {
+          "id": "claude-opus-4-6",
+          "name": "Claude Opus 4.6",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "cost": {
+            "input": 15.0,
+            "output": 75.0,
+            "cacheRead": 1.5,
+            "cacheWrite": 18.75
+          },
+          "contextWindow": 200000,
+          "maxTokens": 16384
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "name": "Claude Sonnet 4.6",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "cost": {
+            "input": 3.0,
+            "output": 15.0,
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75
+          },
+          "contextWindow": 200000,
+          "maxTokens": 16384
+        },
+        {
+          "id": "claude-opus-4-7",
+          "name": "Claude Opus 4.7",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "cost": {
+            "input": 15.0,
+            "output": 75.0,
+            "cacheRead": 1.5,
+            "cacheWrite": 18.75
+          },
+          "contextWindow": 200000,
+          "maxTokens": 16384
+        }
+      ]
+    }
+  }
+}
