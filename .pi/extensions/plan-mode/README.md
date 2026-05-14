@@ -15,7 +15,7 @@ Read-only exploration mode for safe code analysis.
 
 - `/plan` - Toggle plan mode
 - `/todos` - Show current plan progress
-- `Ctrl+Alt+P` - Toggle plan mode (shortcut)
+- `F2` - Toggle plan mode (shortcut)
 
 ## Usage
 
