@@ -15,7 +15,8 @@ export default function (pi: ExtensionAPI) {
 		description: "快速召唤子代理 (subagent)",
 		handler: async (args, ctx) => {
 			// 发现可用的代理
-			const agents = await discoverAgents("both", ctx.cwd);
+			const result = discoverAgents(ctx.cwd, "both");
+			const agents = result.agents;
 			
 			if (agents.length === 0) {
 				ctx.ui.notify("未找到可用的代理", "warning");
