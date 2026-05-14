@@ -1,81 +1,97 @@
 /**
  * Subagent Shortcut Extension
  * 
- * 提供 @agent 语法糖快速召唤子代理
+ * 提供 /sub 命令快速召唤子代理
  * 
- * 用法示例：
- *   @scout 找到所有认证相关的代码
- *   @planner 设计一个缓存系统
- *   @reviewer 审查 src/utils.ts 的改动
- *   @worker 实现用户登录功能
- * 
- * 也支持并行执行：
- *   @scout,planner 分析代码结构并给出重构建议
- * 
- * 链式执行：
- *   @scout->planner->worker 先侦查，再规划，最后实现
+ * 用法：
+ *   /sub
+ *   然后从弹窗中选择代理和执行模式
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { discoverAgents } from "./subagent/agents.js";
 
 export default function (pi: ExtensionAPI) {
-	pi.on("input", async (event, ctx) => {
-		// 跳过扩展注入的消息
-		if (event.source === "extension") {
-			return { action: "continue" };
-		}
-
-		const text = event.text.trim();
-
-		// 检测 @agent 语法
-		const singleMatch = text.match(/^@(\w+)\s+(.+)$/);
-		if (singleMatch) {
-			const [, agent, task] = singleMatch;
-			return {
-				action: "transform",
-				text: `Use ${agent} to ${task}`
-			};
-		}
-
-		// 检测并行语法 @agent1,agent2 task
-		const parallelMatch = text.match(/^@([\w,]+)\s+(.+)$/);
-		if (parallelMatch) {
-			const [, agents, task] = parallelMatch;
-			const agentList = agents.split(',').map(a => a.trim());
+	pi.registerCommand("sub", {
+		description: "快速召唤子代理 (subagent)",
+		handler: async (args, ctx) => {
+			// 发现可用的代理
+			const agents = await discoverAgents("both", ctx.cwd);
 			
-			if (agentList.length > 1) {
-				const taskDescriptions = agentList.map(agent => 
+			if (agents.length === 0) {
+				ctx.ui.notify("未找到可用的代理", "warning");
+				return;
+			}
+
+			// 步骤1: 选择执行模式
+			const modes = [
+				"单个代理 - 执行一个任务",
+				"并行执行 - 多个代理同时工作",
+				"链式执行 - 代理依次处理"
+			];
+			
+			const modeChoice = await ctx.ui.select("选择执行模式", modes);
+			if (!modeChoice) return;
+
+			const modeIndex = modes.indexOf(modeChoice);
+
+			// 步骤2: 选择代理
+			const agentOptions = agents.map(a => ({
+				value: a.name,
+				label: `${a.name} - ${a.description || '无描述'}`
+			}));
+
+			let selectedAgents: string[] = [];
+
+			if (modeIndex === 0) {
+				// 单个代理
+				const agent = await ctx.ui.select(
+					"选择代理",
+					agentOptions.map(a => a.label)
+				);
+				if (!agent) return;
+				const agentName = agent.split(" - ")[0];
+				selectedAgents = [agentName];
+			} else {
+				// 并行或链式 - 需要多选
+				ctx.ui.notify("请在任务描述中指定代理，例如: scout, planner", "info");
+				const agentList = await ctx.ui.input("输入代理名称 (用逗号分隔)");
+				if (!agentList) return;
+				selectedAgents = agentList.split(',').map(a => a.trim());
+			}
+
+			// 步骤3: 输入任务描述
+			const task = await ctx.ui.input("输入任务描述");
+			if (!task) return;
+
+			// 步骤4: 构建命令并注入
+			let command = "";
+			
+			if (modeIndex === 0) {
+				// 单个代理
+				command = `Use ${selectedAgents[0]} to ${task}`;
+			} else if (modeIndex === 1) {
+				// 并行执行
+				const taskDescriptions = selectedAgents.map(agent => 
 					`${agent} to ${task}`
 				).join(', ');
-				return {
-					action: "transform",
-					text: `Run ${agentList.length} agents in parallel: ${taskDescriptions}`
-				};
-			}
-		}
-
-		// 检测链式语法 @agent1->agent2->agent3 task
-		const chainMatch = text.match(/^@([\w\->]+)\s+(.+)$/);
-		if (chainMatch) {
-			const [, chain, task] = chainMatch;
-			if (chain.includes('->')) {
-				const agents = chain.split('->').map(a => a.trim());
-				const chainDescription = agents.map((agent, i) => {
+				command = `Run ${selectedAgents.length} agents in parallel: ${taskDescriptions}`;
+			} else {
+				// 链式执行
+				const chainDescription = selectedAgents.map((agent, i) => {
 					if (i === 0) {
 						return `first have ${agent} ${task}`;
-					} else if (i === agents.length - 1) {
+					} else if (i === selectedAgents.length - 1) {
 						return `then have ${agent} implement based on the previous output`;
 					} else {
 						return `then have ${agent} refine the previous output`;
 					}
 				}).join(', ');
-				
-				return {
-					action: "transform",
-					text: `Use a chain: ${chainDescription}`
-				};
+				command = `Use a chain: ${chainDescription}`;
 			}
-		}
 
-		return { action: "continue" };
+			// 注入命令
+			ctx.ui.notify(`执行: ${command}`, "info");
+			await ctx.injectUserMessage(command);
+		}
 	});
 }
