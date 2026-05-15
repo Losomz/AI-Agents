@@ -1,5 +1,7 @@
 {
   "dependencies": {
-    "@opencode-ai/plugin": "1.14.31"
+    "@opencode-ai/plugin": "1.14.31",
+    "@opentui/core": "0.1.105",
+    "@opentui/solid": "0.1.105"
   }
 }
