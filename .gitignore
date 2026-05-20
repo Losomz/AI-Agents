@@ -3,3 +3,7 @@ node_modules/
 .agentframework/
 .tmp-agentframework/
 .tmp-bootstrap-src/
+
+# Generated local AI tool configs
+.pi/
+.opencode/

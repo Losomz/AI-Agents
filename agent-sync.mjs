@@ -29,7 +29,7 @@ const syncPackages = [
     description: '同步 Pi extensions（git、plan-mode、subagent 等）',
     targets: [
       {
-        from: 'configs/pi/extensions',
+        from: 'configs/.pi/extensions',
         to: '.pi/extensions',
         after: '请在 Pi 中执行 /reload 重新加载扩展。',
       },
@@ -40,10 +40,10 @@ const syncPackages = [
     title: 'OpenCode 配置',
     description: '同步 OpenCode commands、skills 和基础配置',
     targets: [
-      { from: 'configs/opencode/commands', to: '.opencode/commands' },
-      { from: 'configs/opencode/skills', to: '.opencode/skills' },
-      { from: 'configs/opencode/opencode.json', to: '.opencode/opencode.json' },
-      { from: 'configs/opencode/README.md', to: '.opencode/README.md' },
+      { from: 'configs/.opencode/commands', to: '.opencode/commands' },
+      { from: 'configs/.opencode/skills', to: '.opencode/skills' },
+      { from: 'configs/.opencode/opencode.json', to: '.opencode/opencode.json' },
+      { from: 'configs/.opencode/README.md', to: '.opencode/README.md' },
     ],
   },
 ];

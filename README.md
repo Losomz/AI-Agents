@@ -16,9 +16,9 @@ AgentFramework/
 ├── agent-sync.mjs          # 项目内同步脚本
 ├── agents/                 # 通用 agent 模板目录（暂时为空）
 ├── configs/
-│   ├── pi/                 # Pi 配置源
+│   ├── .pi/                # Pi 配置源
 │   │   └── extensions/     # Pi extensions
-│   └── opencode/           # OpenCode 配置源
+│   └── .opencode/          # OpenCode 配置源
 │       ├── commands/
 │       ├── skills/
 │       └── opencode.json
@@ -60,7 +60,7 @@ node agent-sync.mjs pi --local --yes
 同步：
 
 ```text
-configs/pi/extensions -> .pi/extensions
+configs/.pi/extensions -> .pi/extensions
 ```
 
 同步后在 Pi 中执行：
@@ -74,10 +74,10 @@ configs/pi/extensions -> .pi/extensions
 同步：
 
 ```text
-configs/opencode/commands     -> .opencode/commands
-configs/opencode/skills       -> .opencode/skills
-configs/opencode/opencode.json -> .opencode/opencode.json
-configs/opencode/README.md    -> .opencode/README.md
+configs/.opencode/commands      -> .opencode/commands
+configs/.opencode/skills        -> .opencode/skills
+configs/.opencode/opencode.json -> .opencode/opencode.json
+configs/.opencode/README.md     -> .opencode/README.md
 ```
 
 ## 同步策略
