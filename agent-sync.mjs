@@ -25,20 +25,31 @@ const useLocalSource = flags.has('--local');
 const syncPackages = [
   {
     name: 'pi',
-    title: 'Pi 扩展',
+    title: 'Pi 配置',
     description: '同步 Pi extensions（git、plan-mode、subagent 等）',
     targets: [
       {
-        from: 'framework/pi/extensions',
+        from: 'configs/pi/extensions',
         to: '.pi/extensions',
         after: '请在 Pi 中执行 /reload 重新加载扩展。',
       },
     ],
   },
+  {
+    name: 'opencode',
+    title: 'OpenCode 配置',
+    description: '同步 OpenCode commands、skills 和基础配置',
+    targets: [
+      { from: 'configs/opencode/commands', to: '.opencode/commands' },
+      { from: 'configs/opencode/skills', to: '.opencode/skills' },
+      { from: 'configs/opencode/opencode.json', to: '.opencode/opencode.json' },
+      { from: 'configs/opencode/README.md', to: '.opencode/README.md' },
+    ],
+  },
 ];
 
 function printUsage() {
-  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs             # 交互选择同步内容\n  node agent-sync.mjs pi          # 同步 Pi 扩展\n  node agent-sync.mjs pi --yes    # 不询问确认\n  node agent-sync.mjs pi --local  # 开发期：从当前仓库 framework/ 同步，不拉远程\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
+  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 交互选择同步内容\n  node agent-sync.mjs pi             # 同步 Pi 配置\n  node agent-sync.mjs opencode       # 同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
 }
 
 function run(command, args, options = {}) {

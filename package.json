@@ -1,9 +1,0 @@
-{
-  "name": "agentframework-workspace",
-  "private": true,
-  "version": "0.2.0",
-  "scripts": {
-    "menu": "npm --prefix runtime run menu --",
-    "bootstrap:pack": "npm --prefix packages/agentframework-cli pack --dry-run"
-  }
-}
