@@ -125,9 +125,9 @@ docs/WORKLOG.md         # work
 
 ```markdown
 ---
-name: worker
-description: General-purpose subagent with full capabilities
-tools: read, write, edit, bash
+name: General
+description: 一个用于研究复杂问题和执行多步骤任务的通用代理
+tools: read, grep, find, ls, bash, edit, write
 # 可选；不写则使用当前默认模型
 # model: provider/model
 ---
@@ -153,51 +153,32 @@ provider: wanwu
 model: gpt-5.5
 ```
 
+### 使用入口
+
+```text
+/agents                         # 选择 Agent 并输入任务
+/agents General <任务>          # 运行通用可写代理
+/agents Explore <任务>          # 运行代码库只读探索代理
+/agents Scout <任务>            # 运行外部依赖/文档研究代理
+```
+
 ### 可用的 Agent
 
-#### scout
-快速代码侦查，返回压缩的上下文信息供其他 agent 使用。
+#### General
 
-```typescript
-pi.subagent({
-  agent: "scout",
-  agentScope: "project",
-  task: "找到所有处理用户认证的代码"
-});
-```
+用于研究复杂问题和执行多步骤任务的通用代理。拥有完整工具访问权限，可以在需要时修改文件，也可用于并行运行多个工作单元。
 
-#### planner
-根据上下文和需求创建实现计划。
+#### Explore
 
-```typescript
-pi.subagent({
-  agent: "planner",
-  agentScope: "project",
-  task: "规划如何重构认证模块"
-});
-```
+用于探索代码库的快速只读代理。无法修改文件。适合按模式快速查找文件、搜索代码关键字、回答代码库问题。
 
-#### worker
-通用工作 agent，具有完整能力，在隔离的上下文中处理任务。
+#### Scout
 
-```typescript
-pi.subagent({
-  agent: "worker",
-  agentScope: "project",
-  task: "实现用户登录功能"
-});
-```
+用于外部文档和依赖研究的只读代理。适合克隆依赖仓库到托管缓存、检查库源码，或在不修改工作区的情况下与 upstream 实现交叉对照。
 
-#### reviewer
-代码审查专家，分析代码质量和安全性。
+### Worktree 隔离
 
-```typescript
-pi.subagent({
-  agent: "reviewer",
-  agentScope: "project",
-  task: "审查最近的认证相关改动"
-});
-```
+当前版本不启用 Git worktree 隔离。`General` 会直接在当前工作区操作；并行运行多个可写 `General` agent 时请谨慎。
 
 ## 常见问题
 
@@ -238,5 +219,5 @@ pi.subagent({
 ### 2026-05-14
 - 初始化项目 pi 配置
 - 配置 yunyi-claude 自定义 provider
-- 创建 4 个子 agent（scout, planner, worker, reviewer）
+- 创建子 agent 配置，当前收敛为 `General`、`Explore`、`Scout`
 - 子 agent 定义集中到 `.pi/extensions/subagent/agents/`，默认使用当前模型

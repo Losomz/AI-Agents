@@ -22,7 +22,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
+import { type AgentConfig, type AgentScope, discoverAgents, findAgentByName } from "./agents.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -535,8 +535,8 @@ const ChainItem = Type.Object({
 });
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
-	description: 'Which agent directories to use. Default: "user". Use "both" to include subagent extension agents.',
-	default: "user",
+	description: 'Which agent directories to use. Default: "project" for bundled extension agents. Use "both" to include user-level agents too.',
+	default: "project",
 });
 
 const SubagentParams = Type.Object({
@@ -546,28 +546,100 @@ const SubagentParams = Type.Object({
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	agentScope: Type.Optional(AgentScopeSchema),
 	confirmProjectAgents: Type.Optional(
-		Type.Boolean({ description: "Prompt before running extension-local agents. Default: true.", default: true }),
+		Type.Boolean({ description: "Prompt before running extension-local agents. Default: false for bundled agents.", default: false }),
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 });
 
+function parseAgentCommandArgs(args: string): { agentName?: string; task?: string } {
+	const trimmed = args.trim();
+	if (!trimmed) return {};
+	const [agentName = "", ...taskParts] = trimmed.split(/\s+/);
+	return { agentName, task: taskParts.join(" ").trim() };
+}
+
+function buildAgentInvocationPrompt(agent: AgentConfig, task: string): string {
+	return `请立即调用 \`subagent\` 工具来运行子 agent，不要改写任务，不要先询问确认。\n\n参数：\n\n\`\`\`json\n{\n  "agent": "${agent.name}",\n  "task": ${JSON.stringify(task)},\n  "agentScope": "project",\n  "confirmProjectAgents": false\n}\n\`\`\`\n\n子 agent 返回后，请用中文简要总结结果。`;
+}
+
 export default function (pi: ExtensionAPI) {
+	pi.registerCommand("agents", {
+		description: "Choose and run a bundled subagent",
+		getArgumentCompletions: (prefix: string) => {
+			const discovery = discoverAgents(process.cwd(), "project");
+			const normalizedPrefix = prefix.trim().toLowerCase();
+			const items = discovery.agents.map((agent) => ({
+				value: agent.name,
+				label: agent.name,
+				description: agent.description,
+			}));
+			const filtered = items.filter((item) => item.value.toLowerCase().startsWith(normalizedPrefix));
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: async (args, ctx) => {
+			const discovery = discoverAgents(ctx.cwd, "project");
+			const agents = discovery.agents;
+			if (agents.length === 0) {
+				ctx.ui.notify("No bundled agents found", "error");
+				return;
+			}
+
+			const parsed = parseAgentCommandArgs(args);
+			let agent = parsed.agentName ? findAgentByName(agents, parsed.agentName) : undefined;
+			if (parsed.agentName && !agent) {
+				ctx.ui.notify(
+					`Unknown agent: ${parsed.agentName}. Available: ${agents.map((item) => item.name).join(", ")}`,
+					"error",
+				);
+				return;
+			}
+
+			if (!agent) {
+				const choice = await ctx.ui.select(
+					"Choose subagent",
+					agents.map((item) => item.name),
+				);
+				if (!choice) {
+					ctx.ui.notify("Subagent cancelled", "info");
+					return;
+				}
+				agent = findAgentByName(agents, choice);
+			}
+
+			if (!agent) {
+				ctx.ui.notify("Selected agent not found", "error");
+				return;
+			}
+
+			let task = parsed.task;
+			if (!task) {
+				task = await ctx.ui.input(`Task for ${agent.name}`, "Describe the task for this subagent");
+			}
+			if (!task?.trim()) {
+				ctx.ui.notify("Subagent task is empty", "info");
+				return;
+			}
+
+			pi.sendUserMessage(buildAgentInvocationPrompt(agent, task.trim()));
+		},
+	});
+
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
-			'Default agent scope is "user" (from ~/.pi/agent/agents).',
-			'To enable extension-local agents in .pi/extensions/subagent/agents, set agentScope: "both" (or "project").',
+			'Default agent scope is "project" (bundled agents from .pi/extensions/subagent/agents).',
+			'Use agentScope: "both" to also include user-level agents from ~/.pi/agent/agents.',
 		].join(" "),
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const agentScope: AgentScope = params.agentScope ?? "user";
+			const agentScope: AgentScope = params.agentScope ?? "project";
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
-			const confirmProjectAgents = params.confirmProjectAgents ?? true;
+			const confirmProjectAgents = params.confirmProjectAgents ?? false;
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
@@ -796,7 +868,7 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, _context) {
-			const scope: AgentScope = args.agentScope ?? "user";
+			const scope: AgentScope = args.agentScope ?? "project";
 			if (args.chain && args.chain.length > 0) {
 				let text =
 					theme.fg("toolTitle", theme.bold("subagent ")) +

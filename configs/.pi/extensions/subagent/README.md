@@ -1,167 +1,104 @@
-# Subagent Example
+# Subagent Extension
 
-Delegate tasks to specialized subagents with isolated context windows.
+Lightweight bundled subagents for Pi.
 
-## Features
+## Commands
 
-- **Isolated context**: Each subagent runs in a separate `pi` process
-- **Visible process state**: Running subagents show pid, model, duration, and task in the tool card and widget
-- **Streaming output**: See tool calls and progress as they happen
-- **Parallel streaming**: All parallel tasks stream updates simultaneously
-- **Markdown rendering**: Final output rendered with proper formatting (expanded view)
-- **Usage tracking**: Shows turns, tokens, cost, and context usage per agent
-- **Abort support**: Ctrl+C propagates to kill subagent processes
+- `/agents` - choose a bundled agent, enter a task, and run it.
+- `/agents General <task>` - run the General agent directly.
+- `/agents Explore <task>` - run the Explore agent directly.
+- `/agents Scout <task>` - run the Scout agent directly.
 
-## Structure
+Agent names are matched case-insensitively.
 
-```
-subagent/
-├── README.md            # This file
-├── index.ts             # The extension (entry point)
-├── agents.ts            # Agent discovery logic
-├── agents/              # Extension-local subagent definitions
-│   ├── scout.md         # Fast recon, returns compressed context
-│   ├── planner.md       # Creates implementation plans
-│   ├── reviewer.md      # Code review
-│   └── worker.md        # General-purpose (full capabilities)
-└── prompts/             # Workflow presets (prompt templates)
-    ├── implement.md     # scout -> planner -> worker
-    ├── scout-and-plan.md    # scout -> planner (no implementation)
-    └── implement-and-review.md  # worker -> reviewer -> worker
+The extension also keeps the `subagent` tool available for model-driven delegation:
+
+```json
+{
+  "agent": "Explore",
+  "task": "Find code related to resource loading",
+  "agentScope": "project",
+  "confirmProjectAgents": false
+}
 ```
 
-## Installation
+## Bundled Agents
 
-This project keeps the extension and its bundled subagents together:
+Bundled agents live in:
 
-```bash
-.pi/extensions/subagent/index.ts
-.pi/extensions/subagent/agents.ts
+```text
 .pi/extensions/subagent/agents/*.md
 ```
 
-Keep subagent definitions in `.pi/extensions/subagent/agents/` so they are easy to identify, package, and move with the extension.
-
-## Security Model
-
-This tool executes a separate `pi` subprocess with a delegated system prompt and tool/model configuration.
-
-**Extension-local agents** (`.pi/extensions/subagent/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
-
-**Default behavior:** Only loads **user-level agents** from `~/.pi/agent/agents`.
-
-To enable extension-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
-
-When running interactively, the tool prompts for confirmation before running extension-local agents. Set `confirmProjectAgents: false` to disable.
-
-## Usage
-
-### Single agent
-```
-Use scout to find all authentication code
-```
-
-### Parallel execution
-```
-Run 2 scouts in parallel: one to find models, one to find providers
-```
-
-### Chained workflow
-```
-Use a chain: first have scout find the read tool, then have planner suggest improvements
-```
-
-### Workflow prompts
-```
-/implement add Redis caching to the session store
-/scout-and-plan refactor auth to support OAuth
-/implement-and-review add input validation to API endpoints
-```
-
-## Tool Modes
-
-| Mode | Parameter | Description |
-|------|-----------|-------------|
-| Single | `{ agent, task }` | One agent, one task |
-| Parallel | `{ tasks: [...] }` | Multiple agents run concurrently (max 8, 4 concurrent) |
-| Chain | `{ chain: [...] }` | Sequential with `{previous}` placeholder |
-
-## Output Display
-
-**Collapsed view** (default):
-- Status icon (✓/✗/⏳) and agent name
-- Run metadata: `runId`, status, pid, duration, model
-- Last 5-10 items (tool calls and text)
-- Usage stats: `3 turns ↑input ↓output RcacheRead WcacheWrite $cost ctx:contextTokens model`
-
-**Running widget**:
-- While subagents are active, a `Subagents running` widget appears above the editor.
-- It lists agent name, pid, elapsed time, model, and task preview.
-
-**Expanded view** (Ctrl+O):
-- Full task text
-- All tool calls with formatted arguments
-- Final output rendered as Markdown
-- Per-task usage (for chain/parallel)
-
-**Parallel mode streaming**:
-- Shows all tasks with live status (⏳ running, ✓ done, ✗ failed)
-- Updates as each task makes progress
-- Shows "2/3 done, 1 running" status
-
-**Tool call formatting** (mimics built-in tools):
-- `$ command` for bash
-- `read ~/path:1-10` for read
-- `grep /pattern/ in ~/path` for grep
-- etc.
-
-## Agent Definitions
-
-Agents are markdown files with YAML frontmatter:
+To add a new agent, add another markdown file with frontmatter:
 
 ```markdown
 ---
-name: my-agent
-description: What this agent does
+name: MyAgent
+description: What this agent is for
 tools: read, grep, find, ls
-model: claude-haiku-4-5
+# Optional. If omitted, the current Pi default model is used.
+# model: provider/model
 ---
 
-System prompt for the agent goes here.
+System prompt for the agent.
 ```
 
-**Locations:**
-- `~/.pi/agent/agents/*.md` - User-level agents (loaded for `user` and `both`)
-- `.pi/extensions/subagent/agents/*.md` - Extension-local agents (loaded for `project` and `both`)
+If `model` is omitted, the subagent uses the current Pi default model.
 
-Extension-local agents override user agents with the same name when `agentScope: "both"`.
+## Default Agents
 
-## Sample Agents
+### General
 
-| Agent | Purpose | Model | Tools |
-|-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Current default | read, grep, find, ls, bash |
-| `planner` | Implementation plans | Current default | read, grep, find, ls |
-| `reviewer` | Code review | Current default | read, grep, find, ls, bash |
-| `worker` | General-purpose | Current default | (all default) |
+模式：subagent
 
-## Workflow Prompts
+A general-purpose agent for complex questions and multi-step tasks. It has full tool access and may modify files when needed. Use it for implementation, debugging, or larger delegated work units.
 
-| Prompt | Flow |
-|--------|------|
-| `/implement <query>` | scout → planner → worker |
-| `/scout-and-plan <query>` | scout → planner |
-| `/implement-and-review <query>` | worker → reviewer → worker |
+### Explore
 
-## Error Handling
+模式：subagent
 
-- **Exit code != 0**: Tool returns error with stderr/output
-- **stopReason "error"**: LLM error propagated with error message
-- **stopReason "aborted"**: User abort (Ctrl+C) kills subprocess, throws error
-- **Chain mode**: Stops at first failing step, reports which step failed
+A fast read-only codebase exploration agent. It cannot modify files. Use it to find files by pattern, search code, inspect relevant sections, or answer questions about the repository.
 
-## Limitations
+### Scout
 
-- Output truncated to last 10 items in collapsed view (expand to see all)
-- Agents discovered fresh on each invocation (allows editing mid-session)
-- Parallel mode limited to 8 tasks, 4 concurrent
+模式：subagent
+
+A read-only external research agent for dependencies, upstream source code, and external documentation. It may clone external repositories into a managed cache, but must not modify the current workspace.
+
+Recommended cache location:
+
+```text
+~/.cache/agentframework/subagents/
+```
+
+## Running Widget
+
+While subagents are running, the extension shows a widget above the editor with:
+
+- agent name
+- pid
+- elapsed time
+- model if configured
+- task preview
+
+Example:
+
+```text
+Subagents running:
+  ⏳ Explore pid=1234 8s — 查找资源加载相关代码
+```
+
+## Worktree Isolation
+
+Current version does **not** use Git worktree isolation.
+
+`General` runs directly in the current workspace and can modify files. Be careful when running multiple writable General agents in parallel, because they can edit overlapping files.
+
+`Explore` and `Scout` are read-only by prompt and tool policy.
+
+## Safety Notes
+
+- Extension-local agents are repository-controlled prompts.
+- The `/agents` command runs bundled project agents with `confirmProjectAgents: false` because these prompts are part of this trusted config package.
+- The raw `subagent` tool still accepts `agentScope` for advanced use.

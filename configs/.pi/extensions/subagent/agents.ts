@@ -52,7 +52,8 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 
 		const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
 
-		if (!frontmatter.name || !frontmatter.description) {
+		const name = frontmatter.name || path.basename(entry.name, ".md");
+		if (!name || !frontmatter.description) {
 			continue;
 		}
 
@@ -62,7 +63,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			.filter(Boolean);
 
 		agents.push({
-			name: frontmatter.name,
+			name,
 			description: frontmatter.description,
 			tools: tools && tools.length > 0 ? tools : undefined,
 			model: frontmatter.model,
@@ -99,15 +100,20 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 	const agentMap = new Map<string, AgentConfig>();
 
 	if (scope === "both") {
-		for (const agent of userAgents) agentMap.set(agent.name, agent);
-		for (const agent of projectAgents) agentMap.set(agent.name, agent);
+		for (const agent of userAgents) agentMap.set(agent.name.toLowerCase(), agent);
+		for (const agent of projectAgents) agentMap.set(agent.name.toLowerCase(), agent);
 	} else if (scope === "user") {
-		for (const agent of userAgents) agentMap.set(agent.name, agent);
+		for (const agent of userAgents) agentMap.set(agent.name.toLowerCase(), agent);
 	} else {
-		for (const agent of projectAgents) agentMap.set(agent.name, agent);
+		for (const agent of projectAgents) agentMap.set(agent.name.toLowerCase(), agent);
 	}
 
 	return { agents: Array.from(agentMap.values()), projectAgentsDir };
+}
+
+export function findAgentByName(agents: AgentConfig[], name: string): AgentConfig | undefined {
+	const normalized = name.trim().toLowerCase();
+	return agents.find((agent) => agent.name.toLowerCase() === normalized);
 }
 
 export function formatAgentList(agents: AgentConfig[], maxItems: number): { text: string; remaining: number } {
