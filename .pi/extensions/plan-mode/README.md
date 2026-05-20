@@ -4,48 +4,41 @@ Read-only exploration mode for safe code analysis.
 
 ## Features
 
-- **Read-only tools**: Restricts available tools to read, bash, grep, find, ls, question
+- **Read-only tools**: Restricts available tools to read, bash, grep, find, ls, questionnaire
 - **Bash allowlist**: Only read-only bash commands are allowed
-- **Plan extraction**: Extracts numbered steps from `Plan:` sections
-- **Progress tracking**: Widget shows completion status during execution
-- **[DONE:n] markers**: Explicit step completion tracking
-- **Session persistence**: State survives session resume
+- **Opencode-style reminder**: Strong read-only planning prompt, without forcing numbered plans
+- **Two-choice flow**: After each plan-mode turn, choose `Stay in plan mode` or `Execute`
+- **Session persistence**: Plan-mode enabled state survives session resume
 
 ## Commands
 
 - `/plan` - Toggle plan mode
-- `/todos` - Show current plan progress
-- `F2` - Toggle plan mode (shortcut)
+- `/todos` - Show a note that numbered todo tracking is disabled
+- `Tab` - Toggle plan mode shortcut
 
 ## Usage
 
-1. Enable plan mode with `/plan` or `--plan` flag
-2. Ask the agent to analyze code and create a plan
-3. The agent should output a numbered plan under a `Plan:` header:
-
-```
-Plan:
-1. First step description
-2. Second step description
-3. Third step description
-```
-
-4. Choose "Execute the plan" when prompted
-5. During execution, the agent marks steps complete with `[DONE:n]` tags
-6. Progress widget shows completion status
+1. Enable plan mode with `/plan` or `--plan` flag.
+2. Ask the agent to inspect, analyze, or discuss an approach.
+3. The agent stays read-only and may respond in whatever format fits the task: short explanation, bullets, checklist, or structured plan.
+4. After the turn, choose one of two options:
+   - `Stay in plan mode` - keep discussing/analyzing with read-only tools.
+   - `Execute` - leave plan mode, restore full tools, and execute the discussed approach.
 
 ## How It Works
 
 ### Plan Mode (Read-Only)
-- Only read-only tools available
-- Bash commands filtered through allowlist
-- Agent creates a plan without making changes
+
+- Only read-only tools are available.
+- Bash commands are filtered through an allowlist.
+- The agent is instructed not to edit files, write files, install dependencies, commit changes, or otherwise change system state.
+- Numbered `Plan:` sections are not required and are not parsed.
 
 ### Execution Mode
-- Full tool access restored
-- Agent executes steps in order
-- `[DONE:n]` markers track completion
-- Widget shows progress
+
+- Full tool access is restored.
+- The agent receives a short instruction to execute the approach discussed above.
+- There is no numbered step extraction, progress widget, or `[DONE:n]` tracking.
 
 ### Command Allowlist
 
