@@ -8,12 +8,11 @@
 .pi/
 ├── README.md           # 本文档
 ├── models.json         # 自定义 provider 配置
-├── agents/             # 子 agent 定义
-│   ├── scout.md        # 代码侦查 agent
-│   ├── planner.md      # 规划 agent
-│   ├── worker.md       # 通用工作 agent
-│   └── reviewer.md     # 代码审查 agent
 └── extensions/         # 扩展脚本
+    └── subagent/       # 子 agent 扩展
+        ├── index.ts
+        ├── agents.ts
+        └── agents/     # 子 agent 定义
 ```
 
 ## 自定义 Provider 配置
@@ -97,32 +96,36 @@ export YUNYI_API_KEY="your-actual-key"
 
 ### Agent 定义格式
 
-子 agent 定义文件使用 Markdown frontmatter 格式：
+子 agent 定义集中放在 `.pi/extensions/subagent/agents/`，使用 Markdown frontmatter 格式：
 
 ```markdown
 ---
 name: worker
 description: General-purpose subagent with full capabilities
 tools: read, write, edit, bash
-model: yunyi-claude/claude-opus-4-7
+# 可选；不写则使用当前默认模型
+# model: provider/model
 ---
 
 Agent 的系统提示词内容...
 ```
 
-### 重要：模型指定格式
+### 模型配置
 
-**必须使用 `provider/model` 格式**：
+默认不在 agent 定义里固定模型，让子 agent 使用当前 Pi 默认模型。
+
+如需为某个子 agent 固定模型，可添加 `model: provider/model`：
 
 ```yaml
-model: yunyi-claude/claude-opus-4-7
+model: wanwu/gpt-5.5
 ```
 
-**不要使用分开的字段**（subagent 无法正确识别）：
+不要使用分开的字段：
+
 ```yaml
 # ❌ 错误方式
-provider: yunyi-claude
-model: claude-opus-4-7
+provider: wanwu
+model: gpt-5.5
 ```
 
 ### 可用的 Agent
@@ -179,8 +182,8 @@ pi.subagent({
 
 **解决方案**：
 1. 确保 `.pi/models.json` 或 `~/.pi/agent/models.json` 存在
-2. 确保 agent 定义中使用 `model: provider/model` 格式
-3. 重启 pi 让配置生效
+2. 如果 agent 定义里写了 `model:`，确保使用 `provider/model` 格式且模型存在
+3. 重启 pi 或执行 `/reload` 让配置生效
 
 ### Q: 如何在多个项目间共享配置？
 
@@ -211,4 +214,4 @@ pi.subagent({
 - 初始化项目 pi 配置
 - 配置 yunyi-claude 自定义 provider
 - 创建 4 个子 agent（scout, planner, worker, reviewer）
-- 修复 subagent 启动问题（使用 provider/model 格式）
+- 子 agent 定义集中到 `.pi/extensions/subagent/agents/`，默认使用当前模型

@@ -4,6 +4,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
@@ -82,21 +83,15 @@ function isDirectory(p: string): boolean {
 	}
 }
 
-function findNearestProjectAgentsDir(cwd: string): string | null {
-	let currentDir = cwd;
-	while (true) {
-		const candidate = path.join(currentDir, ".pi", "agents");
-		if (isDirectory(candidate)) return candidate;
-
-		const parentDir = path.dirname(currentDir);
-		if (parentDir === currentDir) return null;
-		currentDir = parentDir;
-	}
+function getExtensionAgentsDir(): string | null {
+	const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "agents");
+	return isDirectory(dir) ? dir : null;
 }
 
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
+	void cwd;
 	const userDir = path.join(getAgentDir(), "agents");
-	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
+	const projectAgentsDir = getExtensionAgentsDir();
 
 	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user");
 	const projectAgents = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");

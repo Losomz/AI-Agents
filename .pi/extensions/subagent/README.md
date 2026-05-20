@@ -5,6 +5,7 @@ Delegate tasks to specialized subagents with isolated context windows.
 ## Features
 
 - **Isolated context**: Each subagent runs in a separate `pi` process
+- **Visible process state**: Running subagents show pid, model, duration, and task in the tool card and widget
 - **Streaming output**: See tool calls and progress as they happen
 - **Parallel streaming**: All parallel tasks stream updates simultaneously
 - **Markdown rendering**: Final output rendered with proper formatting (expanded view)
@@ -18,7 +19,7 @@ subagent/
 ├── README.md            # This file
 ├── index.ts             # The extension (entry point)
 ├── agents.ts            # Agent discovery logic
-├── agents/              # Sample agent definitions
+├── agents/              # Extension-local subagent definitions
 │   ├── scout.md         # Fast recon, returns compressed context
 │   ├── planner.md       # Creates implementation plans
 │   ├── reviewer.md      # Code review
@@ -31,38 +32,27 @@ subagent/
 
 ## Installation
 
-From the repository root, symlink the files:
+This project keeps the extension and its bundled subagents together:
 
 ```bash
-# Symlink the extension (must be in a subdirectory with index.ts)
-mkdir -p ~/.pi/agent/extensions/subagent
-ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/index.ts" ~/.pi/agent/extensions/subagent/index.ts
-ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/agents.ts" ~/.pi/agent/extensions/subagent/agents.ts
-
-# Symlink agents
-mkdir -p ~/.pi/agent/agents
-for f in packages/coding-agent/examples/extensions/subagent/agents/*.md; do
-  ln -sf "$(pwd)/$f" ~/.pi/agent/agents/$(basename "$f")
-done
-
-# Symlink workflow prompts
-mkdir -p ~/.pi/agent/prompts
-for f in packages/coding-agent/examples/extensions/subagent/prompts/*.md; do
-  ln -sf "$(pwd)/$f" ~/.pi/agent/prompts/$(basename "$f")
-done
+.pi/extensions/subagent/index.ts
+.pi/extensions/subagent/agents.ts
+.pi/extensions/subagent/agents/*.md
 ```
+
+Keep subagent definitions in `.pi/extensions/subagent/agents/` so they are easy to identify, package, and move with the extension.
 
 ## Security Model
 
 This tool executes a separate `pi` subprocess with a delegated system prompt and tool/model configuration.
 
-**Project-local agents** (`.pi/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
+**Extension-local agents** (`.pi/extensions/subagent/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
 
 **Default behavior:** Only loads **user-level agents** from `~/.pi/agent/agents`.
 
-To enable project-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
+To enable extension-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
 
-When running interactively, the tool prompts for confirmation before running project-local agents. Set `confirmProjectAgents: false` to disable.
+When running interactively, the tool prompts for confirmation before running extension-local agents. Set `confirmProjectAgents: false` to disable.
 
 ## Usage
 
@@ -100,8 +90,13 @@ Use a chain: first have scout find the read tool, then have planner suggest impr
 
 **Collapsed view** (default):
 - Status icon (✓/✗/⏳) and agent name
+- Run metadata: `runId`, status, pid, duration, model
 - Last 5-10 items (tool calls and text)
 - Usage stats: `3 turns ↑input ↓output RcacheRead WcacheWrite $cost ctx:contextTokens model`
+
+**Running widget**:
+- While subagents are active, a `Subagents running` widget appears above the editor.
+- It lists agent name, pid, elapsed time, model, and task preview.
 
 **Expanded view** (Ctrl+O):
 - Full task text
@@ -136,19 +131,19 @@ System prompt for the agent goes here.
 ```
 
 **Locations:**
-- `~/.pi/agent/agents/*.md` - User-level (always loaded)
-- `.pi/agents/*.md` - Project-level (only with `agentScope: "project"` or `"both"`)
+- `~/.pi/agent/agents/*.md` - User-level agents (loaded for `user` and `both`)
+- `.pi/extensions/subagent/agents/*.md` - Extension-local agents (loaded for `project` and `both`)
 
-Project agents override user agents with the same name when `agentScope: "both"`.
+Extension-local agents override user agents with the same name when `agentScope: "both"`.
 
 ## Sample Agents
 
 | Agent | Purpose | Model | Tools |
 |-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash |
-| `planner` | Implementation plans | Sonnet | read, grep, find, ls |
-| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
-| `worker` | General-purpose | Sonnet | (all default) |
+| `scout` | Fast codebase recon | Current default | read, grep, find, ls, bash |
+| `planner` | Implementation plans | Current default | read, grep, find, ls |
+| `reviewer` | Code review | Current default | read, grep, find, ls, bash |
+| `worker` | General-purpose | Current default | (all default) |
 
 ## Workflow Prompts
 

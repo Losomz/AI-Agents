@@ -18,10 +18,11 @@ import { isSafeCommand } from "./utils.js";
 
 // Tools
 const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
-const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write"];
+const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls", "questionnaire", "subagent"];
 
 export default function planModeExtension(pi: ExtensionAPI): void {
 	let planModeEnabled = false;
+	let toolsBeforePlanMode: string[] | undefined;
 
 	pi.registerFlag("plan", {
 		description: "Start in plan mode (read-only exploration)",
@@ -43,10 +44,12 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		planModeEnabled = !planModeEnabled;
 
 		if (planModeEnabled) {
+			toolsBeforePlanMode = pi.getActiveTools();
 			pi.setActiveTools(PLAN_MODE_TOOLS);
 			ctx.ui.notify(`Plan mode enabled. Tools: ${PLAN_MODE_TOOLS.join(", ")}`);
 		} else {
-			pi.setActiveTools(NORMAL_MODE_TOOLS);
+			pi.setActiveTools(toolsBeforePlanMode ?? NORMAL_MODE_TOOLS);
+			toolsBeforePlanMode = undefined;
 			ctx.ui.notify("Plan mode disabled. Full access restored.");
 		}
 		updateStatus(ctx);
@@ -195,7 +198,8 @@ chooses Execute or Execute with additional instructions.
 
 		if (executeMessage) {
 			planModeEnabled = false;
-			pi.setActiveTools(NORMAL_MODE_TOOLS);
+			pi.setActiveTools(toolsBeforePlanMode ?? NORMAL_MODE_TOOLS);
+			toolsBeforePlanMode = undefined;
 			updateStatus(ctx);
 			persistState();
 

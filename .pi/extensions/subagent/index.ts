@@ -19,7 +19,7 @@ import * as path from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
@@ -27,6 +27,71 @@ import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
+
+type RunStatus = "pending" | "running" | "completed" | "failed" | "aborted";
+
+interface ActiveRun {
+	runId: string;
+	agent: string;
+	task: string;
+	model?: string;
+	pid?: number;
+	status: RunStatus;
+	startedAt: number;
+	updatedAt: number;
+}
+
+const activeRuns = new Map<string, ActiveRun>();
+
+function createRunId(agentName: string): string {
+	return `${agentName}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function formatDuration(ms: number): string {
+	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function statusIcon(status: RunStatus): string {
+	switch (status) {
+		case "pending":
+			return "…";
+		case "running":
+			return "⏳";
+		case "completed":
+			return "✓";
+		case "aborted":
+			return "■";
+		case "failed":
+			return "✗";
+	}
+}
+
+function updateSubagentWidget(ctx: ExtensionContext): void {
+	if (!ctx.hasUI) return;
+
+	const runs = Array.from(activeRuns.values()).filter((run) => run.status === "pending" || run.status === "running");
+	if (runs.length === 0) {
+		ctx.ui.setWidget("subagent-runs", undefined);
+		ctx.ui.setStatus("subagent-runs", undefined);
+		return;
+	}
+
+	const now = Date.now();
+	const lines = ["Subagents running:"];
+	for (const run of runs.slice(0, 6)) {
+		const taskPreview = run.task.length > 48 ? `${run.task.slice(0, 48)}...` : run.task;
+		const pid = run.pid ? `pid=${run.pid}` : "pid=?";
+		const model = run.model ? ` ${run.model}` : "";
+		lines.push(`  ${statusIcon(run.status)} ${run.agent} ${pid} ${formatDuration(now - run.startedAt)}${model} — ${taskPreview}`);
+	}
+	if (runs.length > 6) lines.push(`  ... +${runs.length - 6} more`);
+
+	ctx.ui.setWidget("subagent-runs", lines, { placement: "aboveEditor" });
+	ctx.ui.setStatus("subagent-runs", `subagents:${runs.length}`);
+}
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
@@ -140,6 +205,7 @@ interface UsageStats {
 }
 
 interface SingleResult {
+	runId?: string;
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
 	task: string;
@@ -148,6 +214,10 @@ interface SingleResult {
 	stderr: string;
 	usage: UsageStats;
 	model?: string;
+	pid?: number;
+	status?: RunStatus;
+	startedAt?: number;
+	endedAt?: number;
 	stopReason?: string;
 	errorMessage?: string;
 	step?: number;
@@ -185,6 +255,22 @@ function getDisplayItems(messages: Message[]): DisplayItem[] {
 		}
 	}
 	return items;
+}
+
+function getRunDuration(result: SingleResult): string | undefined {
+	if (!result.startedAt) return undefined;
+	return formatDuration((result.endedAt ?? Date.now()) - result.startedAt);
+}
+
+function formatRunMeta(result: SingleResult): string {
+	const parts: string[] = [];
+	if (result.runId) parts.push(`id:${result.runId}`);
+	if (result.status) parts.push(`status:${result.status}`);
+	if (result.pid) parts.push(`pid:${result.pid}`);
+	const duration = getRunDuration(result);
+	if (duration) parts.push(`duration:${duration}`);
+	if (result.model) parts.push(`model:${result.model}`);
+	return parts.join("  ");
 }
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
@@ -238,6 +324,7 @@ function getPiInvocation(args: string[]): { command: string; args: string[]; she
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
 async function runSingleAgent(
+	ctx: ExtensionContext,
 	defaultCwd: string,
 	agents: AgentConfig[],
 	agentName: string,
@@ -248,6 +335,8 @@ async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 ): Promise<SingleResult> {
+	const runId = createRunId(agentName);
+	const startedAt = Date.now();
 	const agent = agents.find((a) => a.name === agentName);
 
 	if (!agent) {
@@ -272,6 +361,7 @@ async function runSingleAgent(
 	let tmpPromptPath: string | null = null;
 
 	const currentResult: SingleResult = {
+		runId,
 		agent: agentName,
 		agentSource: agent.source,
 		task,
@@ -280,6 +370,8 @@ async function runSingleAgent(
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 		model: agent.model,
+		status: "pending",
+		startedAt,
 		step,
 	};
 
@@ -290,6 +382,7 @@ async function runSingleAgent(
 				details: makeDetails([currentResult]),
 			});
 		}
+		updateSubagentWidget(ctx);
 	};
 
 	try {
@@ -310,6 +403,19 @@ async function runSingleAgent(
 				shell: invocation.shell,
 				stdio: ["ignore", "pipe", "pipe"],
 			});
+			currentResult.pid = proc.pid;
+			currentResult.status = "running";
+			activeRuns.set(runId, {
+				runId,
+				agent: agentName,
+				task,
+				model: currentResult.model,
+				pid: proc.pid,
+				status: "running",
+				startedAt,
+				updatedAt: Date.now(),
+			});
+			emitUpdate();
 			let buffer = "";
 
 			const processLine = (line: string) => {
@@ -337,6 +443,11 @@ async function runSingleAgent(
 							currentResult.usage.contextTokens = usage.totalTokens || 0;
 						}
 						if (!currentResult.model && msg.model) currentResult.model = msg.model;
+						const activeRun = activeRuns.get(runId);
+						if (activeRun) {
+							activeRun.model = currentResult.model;
+							activeRun.updatedAt = Date.now();
+						}
 						if (msg.stopReason) currentResult.stopReason = msg.stopReason;
 						if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
 					}
@@ -362,10 +473,19 @@ async function runSingleAgent(
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) processLine(buffer);
-				resolve(code ?? 0);
+				const exit = code ?? 0;
+				currentResult.status = wasAborted ? "aborted" : exit === 0 ? "completed" : "failed";
+				currentResult.endedAt = Date.now();
+				activeRuns.delete(runId);
+				emitUpdate();
+				resolve(exit);
 			});
 
 			proc.on("error", () => {
+				currentResult.status = "failed";
+				currentResult.endedAt = Date.now();
+				activeRuns.delete(runId);
+				emitUpdate();
 				resolve(1);
 			});
 
@@ -383,6 +503,7 @@ async function runSingleAgent(
 		});
 
 		currentResult.exitCode = exitCode;
+		if (!currentResult.endedAt) currentResult.endedAt = Date.now();
 		if (wasAborted) throw new Error("Subagent was aborted");
 		return currentResult;
 	} finally {
@@ -414,7 +535,7 @@ const ChainItem = Type.Object({
 });
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
-	description: 'Which agent directories to use. Default: "user". Use "both" to include project-local agents.',
+	description: 'Which agent directories to use. Default: "user". Use "both" to include subagent extension agents.',
 	default: "user",
 });
 
@@ -425,7 +546,7 @@ const SubagentParams = Type.Object({
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	agentScope: Type.Optional(AgentScopeSchema),
 	confirmProjectAgents: Type.Optional(
-		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
+		Type.Boolean({ description: "Prompt before running extension-local agents. Default: true.", default: true }),
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 });
@@ -438,7 +559,7 @@ export default function (pi: ExtensionAPI) {
 			"Delegate tasks to specialized subagents with isolated context.",
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 			'Default agent scope is "user" (from ~/.pi/agent/agents).',
-			'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
+			'To enable extension-local agents in .pi/extensions/subagent/agents, set agentScope: "both" (or "project").',
 		].join(" "),
 		parameters: SubagentParams,
 
@@ -489,12 +610,12 @@ export default function (pi: ExtensionAPI) {
 					const names = projectAgentsRequested.map((a) => a.name).join(", ");
 					const dir = discovery.projectAgentsDir ?? "(unknown)";
 					const ok = await ctx.ui.confirm(
-						"Run project-local agents?",
-						`Agents: ${names}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
+						"Run extension-local subagents?",
+						`Agents: ${names}\nSource: ${dir}\n\nExtension-local agents are repo-controlled. Only continue for trusted repositories.`,
 					);
 					if (!ok)
 						return {
-							content: [{ type: "text", text: "Canceled: project-local agents not approved." }],
+							content: [{ type: "text", text: "Canceled: extension-local agents not approved." }],
 							details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
 						};
 				}
@@ -524,6 +645,7 @@ export default function (pi: ExtensionAPI) {
 						: undefined;
 
 					const result = await runSingleAgent(
+						ctx,
 						ctx.cwd,
 						agents,
 						step.agent,
@@ -598,6 +720,7 @@ export default function (pi: ExtensionAPI) {
 
 				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
 					const result = await runSingleAgent(
+						ctx,
 						ctx.cwd,
 						agents,
 						t.agent,
@@ -638,6 +761,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (params.agent && params.task) {
 				const result = await runSingleAgent(
+					ctx,
 					ctx.cwd,
 					agents,
 					params.agent,
@@ -742,8 +866,9 @@ export default function (pi: ExtensionAPI) {
 
 			if (details.mode === "single" && details.results.length === 1) {
 				const r = details.results[0];
-				const isError = r.exitCode !== 0 || r.stopReason === "error" || r.stopReason === "aborted";
-				const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+				const isRunning = r.status === "pending" || r.status === "running" || r.exitCode === -1;
+				const isError = !isRunning && (r.status === "failed" || r.status === "aborted" || r.exitCode !== 0 || r.stopReason === "error" || r.stopReason === "aborted");
+				const icon = isRunning ? theme.fg("warning", statusIcon(r.status ?? "running")) : isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
 				const displayItems = getDisplayItems(r.messages);
 				const finalOutput = getFinalOutput(r.messages);
 
@@ -752,6 +877,8 @@ export default function (pi: ExtensionAPI) {
 					let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
 					if (isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 					container.addChild(new Text(header, 0, 0));
+					const runMeta = formatRunMeta(r);
+					if (runMeta) container.addChild(new Text(theme.fg("dim", runMeta), 0, 0));
 					if (isError && r.errorMessage)
 						container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
 					container.addChild(new Spacer(1));
@@ -786,6 +913,8 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
+				const runMeta = formatRunMeta(r);
+				if (runMeta) text += `\n${theme.fg("dim", runMeta)}`;
 				if (isError && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 				if (isError && r.errorMessage) text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
 				else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
