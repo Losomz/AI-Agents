@@ -9,6 +9,8 @@
 ├── README.md           # 本文档
 ├── models.json         # 自定义 provider 配置
 └── extensions/         # 扩展脚本
+    ├── blog/           # /blog 日志生成入口
+    ├── git/            # /git Git 操作入口
     └── subagent/       # 子 agent 扩展
         ├── index.ts
         ├── agents.ts
@@ -91,6 +93,29 @@ export YUNYI_API_KEY="your-actual-key"
   }
 }
 ```
+
+## Blog 日志生成扩展
+
+`extensions/blog/` 提供单入口 `/blog` 命令，用来从 Git 历史生成不同受众的项目日志，避免占用 Pi 内置 `/changelog`。
+
+可用命令：
+
+```text
+/blog             # 弹出菜单选择日志类型
+/blog product     # 面向消费者/玩家/用户的产品级更新日志
+/blog tech        # 面向技术人员的技术变更日志
+/blog work        # 面向公司内部的工作日志
+```
+
+默认输出文件：
+
+```text
+docs/CHANGELOG.md       # product
+docs/TECH_CHANGELOG.md  # tech
+docs/WORKLOG.md         # work
+```
+
+默认只生成或更新文件，不自动 commit、tag、push；只有在用户明确要求发布/提交/打 tag/推送时才执行对应 Git 操作。
 
 ## 子 Agent 配置
 

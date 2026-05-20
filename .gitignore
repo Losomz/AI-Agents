@@ -5,5 +5,5 @@ node_modules/
 .tmp-bootstrap-src/
 
 # Generated local AI tool configs
-.pi/
-.opencode/
+/.pi/
+/.opencode/

@@ -4,7 +4,7 @@
 
 这个仓库现在只保留两类核心内容：
 
-- `configs/`：各 AI 工具的可同步配置源，例如 Pi、OpenCode。
+- `configs/`：各 AI 工具的可同步配置源，例如 Pi、OpenCode。同步时会全量覆盖目标配置目录。
 - `agents/`：通用 agent 模板目录，暂时只保留空目录占位，后续放独立 agent 文件。
 
 根目录的 `agent-sync.mjs` 是一个轻量同步脚本，用来把本仓库中的配置同步到当前项目。
@@ -57,10 +57,10 @@ node agent-sync.mjs pi --local --yes
 
 ### `pi`
 
-同步：
+全量覆盖同步：
 
 ```text
-configs/.pi/extensions -> .pi/extensions
+configs/.pi -> .pi
 ```
 
 同步后在 Pi 中执行：
@@ -71,24 +71,22 @@ configs/.pi/extensions -> .pi/extensions
 
 ### `opencode`
 
-同步：
+全量覆盖同步：
 
 ```text
-configs/.opencode/commands      -> .opencode/commands
-configs/.opencode/skills        -> .opencode/skills
-configs/.opencode/opencode.json -> .opencode/opencode.json
-configs/.opencode/README.md     -> .opencode/README.md
+configs/.opencode -> .opencode
 ```
 
 ## 同步策略
 
-同步前会把目标目录或文件备份到：
+同步脚本会先更新远程缓存，并在发现远程 `agent-sync.mjs` 版本号更高时自动覆盖当前脚本并重新执行。修改同步脚本后需要递增脚本内的 `SYNC_SCRIPT_VERSION`。
+
+同步时直接删除目标配置目录，再复制最新内容；不创建备份。
 
 ```text
-.agentframework/backups/<timestamp>/
+configs/.pi       -> .pi
+configs/.opencode -> .opencode
 ```
-
-然后删除目标并复制最新内容。
 
 ## 远程仓库配置
 

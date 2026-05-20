@@ -14,23 +14,28 @@ const DEFAULT_REF = process.env.AGENTFRAMEWORK_REF || 'main';
 const CACHE_ROOT = process.env.AGENTFRAMEWORK_HOME || path.join(os.homedir(), '.agentframework');
 const CACHE_REPO_DIR = path.join(CACHE_ROOT, 'repo');
 const PROJECT_DIR = process.cwd();
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
+const SELF_UPDATE_FLAG = '--skip-self-update';
+// Bump this when changing the sync script so older copies can self-upgrade safely.
+const SYNC_SCRIPT_VERSION = 1;
 
 const rawArgs = process.argv.slice(2);
 const flags = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
 const selectedPackageArg = rawArgs.find((arg) => !arg.startsWith('--'));
 const assumeYes = flags.has('--yes') || flags.has('-y');
 const useLocalSource = flags.has('--local');
+const skipSelfUpdate = flags.has(SELF_UPDATE_FLAG);
 
 const syncPackages = [
   {
     name: 'pi',
     title: 'Pi 配置',
-    description: '同步 Pi extensions（git、plan-mode、subagent 等）',
+    description: '全量覆盖同步 Pi 配置（.pi）',
     targets: [
       {
-        from: 'configs/.pi/extensions',
-        to: '.pi/extensions',
+        from: 'configs/.pi',
+        to: '.pi',
         after: '请在 Pi 中执行 /reload 重新加载扩展。',
       },
     ],
@@ -38,18 +43,15 @@ const syncPackages = [
   {
     name: 'opencode',
     title: 'OpenCode 配置',
-    description: '同步 OpenCode commands、skills 和基础配置',
+    description: '全量覆盖同步 OpenCode 配置（.opencode）',
     targets: [
-      { from: 'configs/.opencode/commands', to: '.opencode/commands' },
-      { from: 'configs/.opencode/skills', to: '.opencode/skills' },
-      { from: 'configs/.opencode/opencode.json', to: '.opencode/opencode.json' },
-      { from: 'configs/.opencode/README.md', to: '.opencode/README.md' },
+      { from: 'configs/.opencode', to: '.opencode' },
     ],
   },
 ];
 
 function printUsage() {
-  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 交互选择同步内容\n  node agent-sync.mjs pi             # 同步 Pi 配置\n  node agent-sync.mjs opencode       # 同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
+  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 交互选择同步内容\n  node agent-sync.mjs pi             # 全量覆盖同步 Pi 配置\n  node agent-sync.mjs opencode       # 全量覆盖同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程、不自我升级\n\nBehavior:\n  - 默认先更新 git cache，并在发现 agent-sync.mjs 有更新时自我升级后重新执行。\n  - 同步时会删除目标目录再复制配置源，不创建备份。\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
 }
 
 function run(command, args, options = {}) {
@@ -82,6 +84,20 @@ function run(command, args, options = {}) {
       }
       reject(new Error(stderr.trim() || `${command} ${args.join(' ')} exited with code ${code ?? 'unknown'}`));
     });
+  });
+}
+
+function runNodeScript(scriptPath, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [scriptPath, ...args], {
+      cwd: PROJECT_DIR,
+      stdio: 'inherit',
+      shell: false,
+      env: process.env,
+    });
+
+    child.on('error', reject);
+    child.on('exit', (code) => resolve(code ?? 1));
   });
 }
 
@@ -126,25 +142,57 @@ async function ensureRepo() {
   return CACHE_REPO_DIR;
 }
 
-function timestamp() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+function normalizePathForCompare(value) {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
-async function backupTarget(targetPath, backupRoot) {
-  if (!await pathExists(targetPath)) {
-    return null;
+async function filesEqual(a, b) {
+  try {
+    const [left, right] = await Promise.all([fs.readFile(a), fs.readFile(b)]);
+    return Buffer.compare(left, right) === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function getSyncScriptVersion(scriptPath) {
+  try {
+    const content = await fs.readFile(scriptPath, 'utf-8');
+    const match = content.match(/SYNC_SCRIPT_VERSION\s*=\s*(\d+)/);
+    return match ? Number(match[1]) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function maybeSelfUpdate(repoRoot) {
+  if (useLocalSource || skipSelfUpdate) return false;
+
+  const sourceScript = path.join(repoRoot, 'agent-sync.mjs');
+  if (!await pathExists(sourceScript)) return false;
+  if (normalizePathForCompare(sourceScript) === normalizePathForCompare(SCRIPT_PATH)) return false;
+  if (await filesEqual(sourceScript, SCRIPT_PATH)) return false;
+
+  const sourceVersion = await getSyncScriptVersion(sourceScript);
+  if (sourceVersion <= SYNC_SCRIPT_VERSION) return false;
+
+  console.log(`检测到同步脚本有更新（v${SYNC_SCRIPT_VERSION} -> v${sourceVersion}），正在自我升级...`);
+  await fs.copyFile(sourceScript, SCRIPT_PATH);
+  try {
+    const sourceStat = await fs.stat(sourceScript);
+    await fs.chmod(SCRIPT_PATH, sourceStat.mode);
+  } catch {
+    // Ignore chmod failures on platforms/filesystems that do not support it.
   }
 
-  const relative = path.relative(PROJECT_DIR, targetPath);
-  const backupPath = path.join(backupRoot, relative);
-  await fs.mkdir(path.dirname(backupPath), { recursive: true });
-  await fs.cp(targetPath, backupPath, { recursive: true, force: true });
-  return backupPath;
+  const nextArgs = rawArgs.includes(SELF_UPDATE_FLAG) ? rawArgs : [...rawArgs, SELF_UPDATE_FLAG];
+  console.log('同步脚本已更新，正在重新执行...');
+  const code = await runNodeScript(SCRIPT_PATH, nextArgs);
+  process.exit(code);
 }
 
-async function syncTarget(repoRoot, target, backupRoot) {
+async function syncTarget(repoRoot, target) {
   const sourcePath = path.join(repoRoot, target.from);
   const targetPath = path.join(PROJECT_DIR, target.to);
 
@@ -152,12 +200,11 @@ async function syncTarget(repoRoot, target, backupRoot) {
     throw new Error(`同步源不存在: ${sourcePath}`);
   }
 
-  const backupPath = await backupTarget(targetPath, backupRoot);
   await fs.rm(targetPath, { recursive: true, force: true });
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.cp(sourcePath, targetPath, { recursive: true, force: true });
 
-  return { sourcePath, targetPath, backupPath };
+  return { sourcePath, targetPath };
 }
 
 async function confirm(message) {
@@ -219,21 +266,20 @@ async function main() {
   }
   console.log('');
 
-  const packages = await selectPackage();
   const repoRoot = await ensureRepo();
-  const backupRoot = path.join(PROJECT_DIR, '.agentframework', 'backups', timestamp());
+  await maybeSelfUpdate(repoRoot);
+  const packages = await selectPackage();
 
-  console.log('将同步：');
+  console.log('将全量覆盖同步：');
   for (const pkg of packages) {
     console.log(`- ${pkg.title}`);
     for (const target of pkg.targets) {
       console.log(`  ${target.from} -> ${target.to}`);
     }
   }
-  console.log(`备份目录: ${backupRoot}`);
   console.log('');
 
-  if (!await confirm('确认继续同步并覆盖目标目录吗？')) {
+  if (!await confirm('确认继续同步并删除/覆盖目标目录吗？')) {
     console.log('已取消同步。');
     return;
   }
@@ -241,8 +287,7 @@ async function main() {
   for (const pkg of packages) {
     console.log(`\n同步 ${pkg.title}...`);
     for (const target of pkg.targets) {
-      const result = await syncTarget(repoRoot, target, backupRoot);
-      if (result.backupPath) console.log(`  ✓ 已备份: ${path.relative(PROJECT_DIR, result.backupPath)}`);
+      await syncTarget(repoRoot, target);
       console.log(`  ✓ 已同步: ${target.from} -> ${target.to}`);
       if (target.after) console.log(`  提示: ${target.after}`);
     }
