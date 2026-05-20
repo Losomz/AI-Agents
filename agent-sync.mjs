@@ -18,7 +18,7 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const SELF_UPDATE_FLAG = '--skip-self-update';
 // Bump this when changing the sync script so older copies can self-upgrade safely.
-const SYNC_SCRIPT_VERSION = 1;
+const SYNC_SCRIPT_VERSION = 2;
 
 const rawArgs = process.argv.slice(2);
 const flags = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
@@ -26,6 +26,7 @@ const selectedPackageArg = rawArgs.find((arg) => !arg.startsWith('--'));
 const assumeYes = flags.has('--yes') || flags.has('-y');
 const useLocalSource = flags.has('--local');
 const skipSelfUpdate = flags.has(SELF_UPDATE_FLAG);
+const skipAutoCommit = flags.has('--no-commit') || flags.has('--no-push');
 
 const syncPackages = [
   {
@@ -51,7 +52,7 @@ const syncPackages = [
 ];
 
 function printUsage() {
-  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 交互选择同步内容\n  node agent-sync.mjs pi             # 全量覆盖同步 Pi 配置\n  node agent-sync.mjs opencode       # 全量覆盖同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程、不自我升级\n\nBehavior:\n  - 默认先更新 git cache，并在发现 agent-sync.mjs 有更新时自我升级后重新执行。\n  - 同步时会删除目标目录再复制配置源，不创建备份。\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
+  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 交互选择同步内容\n  node agent-sync.mjs pi             # 全量覆盖同步 Pi 配置\n  node agent-sync.mjs opencode       # 全量覆盖同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程、不自我升级\n  node agent-sync.mjs pi --no-commit # 只同步，不自动提交和推送\n\nBehavior:\n  - 默认先更新 git cache，并在发现 agent-sync.mjs 有更新时自我升级后重新执行。\n  - 同步时会删除目标目录再复制配置源，不创建备份。\n  - 同步完成后会自动提交并推送同步产生的 Git 改动，提交信息形如：✨ feat(pi): 工具升级。\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
 }
 
 function run(command, args, options = {}) {
@@ -207,6 +208,84 @@ async function syncTarget(repoRoot, target) {
   return { sourcePath, targetPath };
 }
 
+function toGitPath(value) {
+  return value.split(path.sep).join('/');
+}
+
+function relativePathInsideProject(targetPath) {
+  const relative = path.relative(PROJECT_DIR, targetPath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return toGitPath(relative);
+}
+
+function getCommitScope(packages) {
+  if (packages.length === 1) return packages[0].name;
+  return 'tools';
+}
+
+async function isGitIgnored(gitPath) {
+  try {
+    await run('git', ['check-ignore', '-q', '--', gitPath], { cwd: PROJECT_DIR });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function filterCommitPaths(paths) {
+  const result = [];
+  for (const item of paths) {
+    if (await isGitIgnored(item)) {
+      console.log(`  - 跳过 Git 忽略路径: ${item}`);
+      continue;
+    }
+    result.push(item);
+  }
+  return result;
+}
+
+async function autoCommitAndPush(packages, syncedTargets) {
+  if (skipAutoCommit) {
+    console.log('\n已跳过自动提交和推送。');
+    return;
+  }
+
+  const repoCheck = await run('git', ['rev-parse', '--is-inside-work-tree'], { cwd: PROJECT_DIR }).catch(() => null);
+  if (!repoCheck || repoCheck.stdout.trim() !== 'true') {
+    console.log('\n当前目录不是 Git 仓库，已跳过自动提交和推送。');
+    return;
+  }
+
+  const commitPaths = [];
+  for (const target of syncedTargets) {
+    const relative = relativePathInsideProject(target.targetPath);
+    if (relative) commitPaths.push(relative);
+  }
+
+  const scriptRelative = relativePathInsideProject(SCRIPT_PATH);
+  if (scriptRelative) commitPaths.push(scriptRelative);
+
+  const uniquePaths = await filterCommitPaths([...new Set(commitPaths)]);
+  if (uniquePaths.length === 0) {
+    console.log('\n没有可提交的同步路径，已跳过自动提交和推送。');
+    return;
+  }
+
+  await run('git', ['add', '-A', '--', ...uniquePaths], { cwd: PROJECT_DIR });
+  const status = await run('git', ['status', '--porcelain', '--', ...uniquePaths], { cwd: PROJECT_DIR });
+  if (!status.stdout.trim()) {
+    console.log('\n同步路径没有 Git 改动，已跳过自动提交和推送。');
+    return;
+  }
+
+  const scope = getCommitScope(packages);
+  const message = `✨ feat(${scope}): 工具升级`;
+  console.log(`\n自动提交同步改动：${message}`);
+  await run('git', ['commit', '-m', message, '--', ...uniquePaths], { cwd: PROJECT_DIR, stdio: 'inherit' });
+  console.log('正在推送同步提交...');
+  await run('git', ['push'], { cwd: PROJECT_DIR, stdio: 'inherit' });
+}
+
 async function confirm(message) {
   if (assumeYes) return true;
   const rl = createInterface({ input, output });
@@ -284,14 +363,18 @@ async function main() {
     return;
   }
 
+  const syncedTargets = [];
   for (const pkg of packages) {
     console.log(`\n同步 ${pkg.title}...`);
     for (const target of pkg.targets) {
-      await syncTarget(repoRoot, target);
+      const synced = await syncTarget(repoRoot, target);
+      syncedTargets.push(synced);
       console.log(`  ✓ 已同步: ${target.from} -> ${target.to}`);
       if (target.after) console.log(`  提示: ${target.after}`);
     }
   }
+
+  await autoCommitAndPush(packages, syncedTargets);
 
   console.log('\n同步完成。');
 }

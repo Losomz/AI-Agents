@@ -53,6 +53,12 @@ node agent-sync.mjs pi --yes
 node agent-sync.mjs pi --local --yes
 ```
 
+只同步、不自动提交和推送：
+
+```bash
+node agent-sync.mjs pi --no-commit
+```
+
 ## 当前同步包
 
 ### `pi`
@@ -82,6 +88,16 @@ configs/.opencode -> .opencode
 同步脚本会先更新远程缓存，并在发现远程 `agent-sync.mjs` 版本号更高时自动覆盖当前脚本并重新执行。修改同步脚本后需要递增脚本内的 `SYNC_SCRIPT_VERSION`。
 
 同步时直接删除目标配置目录，再复制最新内容；不创建备份。
+
+同步完成后会自动提交并推送同步产生的 Git 改动，提交信息按工具类型生成：
+
+```text
+✨ feat(pi): 工具升级
+✨ feat(opencode): 工具升级
+✨ feat(tools): 工具升级
+```
+
+如果目标目录不是 Git 仓库、同步路径没有可提交改动，或使用了 `--no-commit` / `--no-push`，则跳过自动提交和推送。
 
 ```text
 configs/.pi       -> .pi
