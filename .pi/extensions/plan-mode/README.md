@@ -7,7 +7,7 @@ Read-only exploration mode for safe code analysis.
 - **Read-only tools**: Restricts available tools to read, bash, grep, find, ls, questionnaire
 - **Bash allowlist**: Only read-only bash commands are allowed
 - **Opencode-style reminder**: Strong read-only planning prompt, without forcing numbered plans
-- **Two-choice flow**: After each plan-mode turn, choose `Stay in plan mode` or `Execute`
+- **Three-choice flow**: After each plan-mode turn, choose `Stay`, `Execute`, or `Execute with additional instructions`
 - **Session persistence**: Plan-mode enabled state survives session resume
 
 ## Commands
@@ -21,9 +21,10 @@ Read-only exploration mode for safe code analysis.
 1. Enable plan mode with `/plan` or `--plan` flag.
 2. Ask the agent to inspect, analyze, or discuss an approach.
 3. The agent stays read-only and may respond in whatever format fits the task: short explanation, bullets, checklist, or structured plan.
-4. After the turn, choose one of two options:
-   - `Stay in plan mode` - keep discussing/analyzing with read-only tools.
+4. After the turn, choose one of three options:
+   - `Stay` - keep discussing/analyzing with read-only tools.
    - `Execute` - leave plan mode, restore full tools, and execute the discussed approach.
+   - `Execute with additional instructions` - enter extra execution instructions, then leave plan mode and execute.
 
 ## How It Works
 

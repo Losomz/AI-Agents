@@ -8,7 +8,7 @@
  * - /plan command or Tab to toggle
  * - Bash restricted to allowlisted read-only commands
  * - Opencode-style read-only planning reminder
- * - After each plan-mode turn, choose whether to stay in plan mode or execute
+ * - After each plan-mode turn, choose whether to stay, execute, or execute with extra instructions
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -67,7 +67,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		description: "Show plan-mode status",
 		handler: async (_args, ctx) => {
 			ctx.ui.notify(
-				"Plan mode no longer extracts or tracks numbered todos. Use /plan to stay in read-only planning, then choose Execute when ready.",
+				"Plan mode no longer extracts or tracks numbered todos. Use /plan to stay in read-only planning, then choose Execute when ready, optionally with additional instructions.",
 				"info",
 			);
 		},
@@ -158,7 +158,7 @@ bullets, or a structured plan are all acceptable.
 The user indicated that they do not want you to execute yet. You MUST NOT make
 any edits, run any non-readonly tools, change configs, install dependencies,
 create files, or make commits. Only describe what you would do until the user
-chooses Execute.
+chooses Execute or Execute with additional instructions.
 </system-reminder>`,
 				display: false,
 			},
@@ -169,9 +169,31 @@ chooses Execute.
 	pi.on("agent_end", async (_event, ctx) => {
 		if (!planModeEnabled || !ctx.hasUI) return;
 
-		const choice = await ctx.ui.select("Plan mode - what next?", ["Stay in plan mode", "Execute"]);
+		const choice = await ctx.ui.select("Plan mode - what next?", [
+			"Stay",
+			"Execute",
+			"Execute with additional instructions",
+		]);
 
+		let executeMessage: string | undefined;
 		if (choice === "Execute") {
+			executeMessage = "Execute the approach discussed above. Full tool access is now enabled.";
+		} else if (choice === "Execute with additional instructions") {
+			const additionalInstructions = await ctx.ui.input(
+				"Additional execution instructions:",
+				"Describe what to add or adjust before execution...",
+			);
+
+			if (!additionalInstructions?.trim()) {
+				ctx.ui.notify("No additional instructions provided. Staying in plan mode.", "info");
+				persistState();
+				return;
+			}
+
+			executeMessage = `Execute the approach discussed above. Full tool access is now enabled.\n\nAdditional user instructions:\n${additionalInstructions.trim()}`;
+		}
+
+		if (executeMessage) {
 			planModeEnabled = false;
 			pi.setActiveTools(NORMAL_MODE_TOOLS);
 			updateStatus(ctx);
@@ -180,7 +202,7 @@ chooses Execute.
 			pi.sendMessage(
 				{
 					customType: "plan-mode-execute",
-					content: "Execute the approach discussed above. Full tool access is now enabled.",
+					content: executeMessage,
 					display: true,
 				},
 				{ triggerTurn: true },
