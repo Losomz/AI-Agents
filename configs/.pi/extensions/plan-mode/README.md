@@ -42,7 +42,7 @@ Read-only exploration mode for safe code analysis.
 ### Execution Mode
 
 - Full tool access is restored.
-- The agent receives a short instruction to execute the approach discussed above.
+- The extension defers a `plan-mode-execute` custom message to the next macrotask, then calls `sendMessage(..., { triggerTurn: true })` after Pi has settled the current `agent_end` lifecycle.
 - There is no numbered step extraction, progress widget, or `[DONE:n]` tracking.
 
 ### Command Allowlist

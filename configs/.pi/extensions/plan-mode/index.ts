@@ -271,7 +271,8 @@ subagent.
 	});
 
 	// Prompt for next action after each plan-mode turn
-	pi.on("agent_end", async (_event, ctx) => {
+	pi.on("agent_end", async (event, ctx) => {
+		if (event.willRetry) return;
 		if (!planModeEnabled || !ctx.hasUI) return;
 
 		const choice = await ctx.ui.select("Plan mode - what next?", [
@@ -305,14 +306,18 @@ subagent.
 			updateStatus(ctx);
 			persistState();
 
-			pi.sendMessage(
-				{
-					customType: "plan-mode-execute",
-					content: executeMessage,
-					display: true,
-				},
-				{ triggerTurn: true },
-			);
+			// agent_end is emitted before the active run is fully settled. Defer to the
+			// next macrotask so triggerTurn runs when Pi is idle instead of queueing.
+			setTimeout(() => {
+				pi.sendMessage(
+					{
+						customType: "plan-mode-execute",
+						content: executeMessage,
+						display: true,
+					},
+					{ triggerTurn: true },
+				);
+			}, 0);
 			return;
 		}
 
