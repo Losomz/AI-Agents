@@ -5,7 +5,7 @@ Layered Git command for Pi.
 ## Commands
 
 - `/git` - choose a Git operation from a menu.
-- `/git commit` - analyze current changes, then ask the default commit subagent (`General`) to create a Chinese gitmoji + Conventional Commits message and run `git add -A`, `git commit`, and `git push`.
+- `/git commit` - delegate the entire commit workflow to the default commit subagent (`General`) without inspecting status or diff in the main agent.
 - `/git commit <agent>` or `/git commit --agent <agent>` - use a specific subagent for the commit workflow.
 - `/git pull` - pull from the current branch with dirty-tree handling.
 
@@ -17,13 +17,15 @@ This extension keeps Git operations under a single top-level `/git` command so s
 
 ### commit
 
-Collects:
+Sends a fixed delegation template to the main agent that instructs it to immediately call the `subagent` tool.
 
-- `git status --porcelain`
-- `git diff --cached`
-- `git diff`
+The main agent does **not** inspect git state, read diffs, generate commit messages, or run git write commands. The selected subagent performs the entire workflow:
 
-Then sends a structured request to the main agent that instructs it to immediately call the `subagent` tool. The selected subagent performs the entire add/commit/push workflow; the main agent must not run `git add`, `git commit`, or `git push` itself.
+- check `git status --short`
+- inspect `git diff --cached` and `git diff`
+- generate a Chinese gitmoji + Conventional Commits message
+- run `git add -A`, `git commit`, and `git push`
+- report conflicts, empty changes, commit failures, or push failures
 
 Default commit subagent: `General`.
 

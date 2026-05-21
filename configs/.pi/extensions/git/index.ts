@@ -33,44 +33,27 @@ function parseGitArgs(args: string): { operation: string; agent?: string } {
 	return { operation, agent };
 }
 
-async function chooseCommitAgent(ctx: ExtensionContext, requestedAgent?: string): Promise<string | undefined> {
-	if (requestedAgent) return requestedAgent;
-	return DEFAULT_COMMIT_AGENT;
+function chooseCommitAgent(requestedAgent?: string): string {
+	return requestedAgent || DEFAULT_COMMIT_AGENT;
 }
 
-async function handleGitCommit(pi: ExtensionAPI, ctx: ExtensionContext, requestedAgent?: string): Promise<void> {
-	// Check git status
-	const { stdout: status, code: statusCode } = await pi.exec("git", ["status", "--porcelain"]);
+async function handleGitCommit(pi: ExtensionAPI, _ctx: ExtensionContext, requestedAgent?: string): Promise<void> {
+	const agentName = chooseCommitAgent(requestedAgent);
 
-	if (statusCode !== 0) {
-		ctx.ui.notify("Not a git repository", "error");
-		return;
-	}
-
-	if (status.trim().length === 0) {
-		ctx.ui.notify("No changes to commit", "info");
-		return;
-	}
-
-	// Get git diff
-	const { stdout: diffCached } = await pi.exec("git", ["diff", "--cached"]);
-	const { stdout: diffUnstaged } = await pi.exec("git", ["diff"]);
-
-	const agentName = await chooseCommitAgent(ctx, requestedAgent);
-	if (!agentName) {
-		ctx.ui.notify("Git commit cancelled", "info");
-		return;
-	}
-
-	// Build delegated task for the subagent. The main agent must not perform commit actions itself.
+	// Fixed delegation template only. The main agent should not inspect git state or diff,
+	// so commit details stay inside the subagent's isolated context.
 	const commitTask = `你是本次 Git 提交任务的执行者，请在子 agent 进程内完整完成提交和推送。
 
-重要要求：
+## 执行要求
 
-- 你必须自己重新检查当前仓库状态，不能只依赖下面的快照。
-- 分析改动内容，生成合适的中文提交信息。
-- 然后执行 \`git add -A\`、\`git commit -m "提交信息"\`、\`git push\`。
-- 如果没有可提交内容、发生冲突、提交失败或推送失败，请停止并说明原因，不要让父 agent 代替执行。
+1. 自己执行 \`git status --short\` 检查是否有改动。
+2. 如果没有可提交内容，停止并说明原因。
+3. 自己执行 \`git diff --cached\` 和 \`git diff\` 分析改动。
+4. 根据实际改动生成合适的提交信息。
+5. 执行 \`git add -A\` 暂存所有改动。
+6. 执行 \`git commit -m "提交信息"\` 提交。
+7. 执行 \`git push\` 推送。
+8. 如果发生冲突、提交失败或推送失败，请停止并说明原因，不要让父 agent 代替执行。
 
 ## 提交信息格式要求
 
@@ -84,34 +67,14 @@ async function handleGitCommit(pi: ExtensionAPI, ctx: ExtensionContext, requeste
 - description 用中文说明"为什么"做这个改动
 - 主题行长度控制在 72 个字符以内
 
-## Git Status
+## 边界
 
-\`\`\`
-${status}
-\`\`\`
-
-## Git Diff (Staged)
-
-\`\`\`diff
-${diffCached || "(no staged changes)"}
-\`\`\`
-
-## Git Diff (Unstaged)
-
-\`\`\`diff
-${diffUnstaged || "(no unstaged changes)"}
-\`\`\`
-
-请分析改动内容，生成合适的提交信息，然后执行：
-1. \`git add -A\` 暂存所有改动
-2. \`git commit -m "提交信息"\` 提交
-3. \`git push\` 推送
-
-如果有冲突或错误，通知我手动处理。`;
+主 agent 不参与 git 检查、diff 分析、提交信息生成或执行。
+所有 git 操作都必须由你在子 agent 进程内完成。`;
 
 	const contextMessage = `请立即调用 \`subagent\` 工具，把 Git 提交任务完整委派给指定子 agent：\`${agentName}\`。
 
-主 agent 不要执行 \`git add\`、\`git commit\`、\`git push\`，也不要自己完成提交；提交和推送必须由子 agent 进程完成。子 agent 返回后，请只用中文简要总结结果。
+主 agent 不要检查 git 状态、不要读取 diff、不要生成提交信息、不要执行 \`git add\` / \`git commit\` / \`git push\`；提交和推送必须由子 agent 进程完成。子 agent 返回后，请只用中文简要总结结果。
 
 参数：
 
