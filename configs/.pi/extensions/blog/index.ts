@@ -35,17 +35,32 @@ function commonDir(): string {
 	return path.join(extensionDir(), "common");
 }
 
-function splitList(value: string | undefined): string[] {
-	if (!value) return [];
-	return value
+function toStringValue(value: unknown): string | undefined {
+	if (value == null) return undefined;
+	if (typeof value === "string") return value;
+	return String(value);
+}
+
+function splitList(value: unknown): string[] {
+	if (Array.isArray(value)) {
+		return value.map((item) => String(item).trim()).filter(Boolean);
+	}
+
+	const text = toStringValue(value);
+	if (!text) return [];
+
+	return text
 		.split(",")
 		.map((item) => item.trim())
 		.filter(Boolean);
 }
 
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
-	if (value == null || value.trim() === "") return defaultValue;
-	const normalized = value.trim().toLowerCase();
+function parseBoolean(value: unknown, defaultValue: boolean): boolean {
+	if (value == null) return defaultValue;
+	if (typeof value === "boolean") return value;
+
+	const normalized = String(value).trim().toLowerCase();
+	if (!normalized) return defaultValue;
 	if (["true", "1", "yes", "y", "on"].includes(normalized)) return true;
 	if (["false", "0", "no", "n", "off"].includes(normalized)) return false;
 	return defaultValue;
@@ -63,17 +78,18 @@ function loadWorkflowFile(filePath: string): BlogWorkflow | null {
 		return null;
 	}
 
-	const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
-	const name = (frontmatter.name || path.basename(filePath, ".md")).trim();
+	const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(content);
+	const rawName = toStringValue(frontmatter.name);
+	const name = (rawName || path.basename(filePath, ".md")).trim();
 	if (!name) return null;
 
 	return {
 		name,
-		description: frontmatter.description || name,
+		description: toStringValue(frontmatter.description) || name,
 		aliases: splitList(frontmatter.aliases),
-		agent: frontmatter.agent || DEFAULT_BLOG_AGENT,
+		agent: toStringValue(frontmatter.agent) || DEFAULT_BLOG_AGENT,
 		preCommit: parseBoolean(frontmatter.preCommit, true),
-		preCommitAgent: frontmatter.preCommitAgent || DEFAULT_PRE_COMMIT_AGENT,
+		preCommitAgent: toStringValue(frontmatter.preCommitAgent) || DEFAULT_PRE_COMMIT_AGENT,
 		body: body.trim(),
 		filePath,
 	};
@@ -125,7 +141,7 @@ function readPreCommitPrompt(): string | null {
 	const filePath = path.join(commonDir(), "pre-commit.md");
 	try {
 		const content = fs.readFileSync(filePath, "utf-8");
-		const { body } = parseFrontmatter<Record<string, string>>(content);
+		const { body } = parseFrontmatter<Record<string, unknown>>(content);
 		return body.trim();
 	} catch {
 		return null;
