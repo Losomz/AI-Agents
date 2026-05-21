@@ -7,7 +7,7 @@ Layered `/blog` command for generating project logs from Git history.
 - `/blog` - choose a blog/log type from a menu.
 - `/blog product` - generate a product-facing changelog for consumers, players, or end users.
 - `/blog tech` - generate a technical changelog for developers and maintainers.
-- `/blog work` - generate an internal work log for company/team reporting.
+- `/blog work` - generate a lightweight daily work log from Git commits.
 
 Aliases are supported for common English and Chinese words, for example:
 
@@ -37,7 +37,7 @@ Default target files:
 
 - `docs/CHANGELOG.md` - product-facing changelog
 - `docs/TECH_CHANGELOG.md` - technical changelog
-- `docs/WORKLOG.md` - internal work log
+- `docs/WORKLOG.md` - lightweight daily work log
 
 ## Safety Defaults
 
@@ -91,13 +91,12 @@ Focus:
 
 ### work
 
-For internal company/team reporting.
+For lightweight daily work logs.
 
 Focus:
 
-- completed work
-- why it was done
-- impact scope
-- collaboration and engineering support
-- risks/blockers
-- next steps
+- summarize meaningful Git commits into natural Chinese work items
+- group related commits by module or task
+- keep only what was done today or in the selected commit range
+- filter merge commits, temporary commits, pure formatting, repeated noise, and overly detailed implementation notes
+- output a simple section like `2026-05-20` / `今日工作内容` / one sentence per item
