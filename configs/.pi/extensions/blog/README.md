@@ -1,102 +1,95 @@
 # Blog Extension
 
-Layered `/blog` command for generating project logs from Git history.
+Layered `/blog` command for running file-based project log workflows from Git history.
 
 ## Commands
 
-- `/blog` - choose a blog/log type from a menu.
-- `/blog product` - generate a product-facing changelog for consumers, players, or end users.
-- `/blog tech` - generate a technical changelog for developers and maintainers.
-- `/blog work` - generate a lightweight daily work log from Git commits.
+- `/blog` - choose a blog/log workflow from discovered files.
+- `/blog product` - run `workflows/product.md`.
+- `/blog tech` - run `workflows/tech.md`.
+- `/blog work` - run `workflows/work.md`.
 
-Aliases are supported for common English and Chinese words, for example:
+Aliases are declared in each workflow file's frontmatter.
 
-- product: `product`, `user`, `player`, `release`, `产品`, `用户`, `玩家`
-- tech: `tech`, `technical`, `dev`, `engineering`, `技术`, `研发`
-- work: `work`, `internal`, `report`, `worklog`, `工作`, `内部`, `汇报`
+## Structure
+
+```text
+blog/
+├── index.ts              # Discovers workflows and delegates execution
+├── common/
+│   └── pre-commit.md     # Shared pre-log Git settlement prompt
+└── workflows/
+    ├── product.md        # Product/user-facing changelog workflow
+    ├── tech.md           # Technical changelog workflow
+    └── work.md           # Internal worklog workflow
+```
 
 ## Design
 
-This extension keeps related log generation under a single top-level `/blog` command so slash-command filtering stays clean and does not conflict with Pi's built-in `/changelog` command.
+`index.ts` intentionally does not hardcode product/tech/work behavior. It only:
 
-The extension itself does not write files directly. It:
+1. Scans `workflows/*.md`.
+2. Parses frontmatter:
+   - `name`
+   - `description`
+   - `aliases`
+   - `agent`
+   - `preCommit`
+   - `preCommitAgent`
+3. Shows discovered workflows in `/blog` selection and completions.
+4. Finds a workflow by `name` or `aliases`.
+5. Builds a `subagent` chain:
+   - optional shared `common/pre-commit.md`
+   - selected workflow body
+6. Sends that chain prompt to the active Pi agent.
 
-1. Checks that the current directory is a Git repository.
-2. Collects Git context:
-   - `git status --short --branch`
-   - latest tags
-   - latest tag from `git describe --tags --abbrev=0`
-   - commits since latest tag, or all commits if there is no tag
-   - commit stats and changed files
-3. Sends a structured prompt to the active Pi agent.
-4. The agent analyzes the commits and updates the target log file.
+All behavior differences are prompt-file polymorphism. To add a new workflow, add a new markdown file under `workflows/`; no TypeScript change should be needed.
 
-## Output Files
+## Workflow Frontmatter
 
-Default target files:
+Example:
 
-- `docs/CHANGELOG.md` - product-facing changelog
-- `docs/TECH_CHANGELOG.md` - technical changelog
-- `docs/WORKLOG.md` - lightweight daily work log
+```markdown
+---
+name: product
+description: 面向消费者/玩家/用户的产品级更新日志；默认提交、打版本标签并推送
+aliases: products,consumer,player,user,release,changelog,产品,用户,玩家,发布,更新日志
+agent: General
+preCommit: true
+preCommitAgent: General
+---
 
-## Safety Defaults
-
-By default `/blog` only asks the agent to generate or update the log file.
-
-It explicitly instructs the agent **not** to:
-
-- commit
-- create Git tags
-- push
-
-unless the user explicitly requests those actions in the command, for example:
-
-```text
-/blog product 发布并打 tag
-/blog tech 提交日志文件
-/blog work 生成后不要提交
+Workflow prompt body...
 ```
 
-## Log Types
+Fields:
 
-### product
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | no | file basename | Workflow command name |
+| `description` | no | name | Text shown in completions/menu |
+| `aliases` | no | none | Comma-separated alternate names |
+| `agent` | no | `General` | Subagent used for the workflow body |
+| `preCommit` | no | `true` | Whether to run `common/pre-commit.md` first |
+| `preCommitAgent` | no | `General` | Subagent used for pre-commit |
 
-For users, players, or customers.
+## Default Workflows
 
-Focus:
+| Workflow | Target file | Commit | Tag | Push |
+|----------|-------------|--------|-----|------|
+| `product` | `docs/CHANGELOG.md` | yes | yes | yes |
+| `tech` | `docs/TECH_CHANGELOG.md` | yes | yes | yes |
+| `work` | `docs/WORKLOG.md` | yes | no | yes |
 
-- user-visible new content
-- UX improvements
-- bug fixes users can feel
+These defaults live in the markdown workflow prompts, not in `index.ts`.
 
-Skip by default:
+## Safety Model
 
-- pure refactors
-- docs-only changes
-- CI/build/dependency/internal tooling changes
+Safety is enforced by prompt boundaries:
 
-### tech
-
-For developers, testers, maintainers, and technical leads.
-
-Focus:
-
-- modules and architecture
-- API/data/config changes
-- refactors
-- fixes and stability
-- build/tooling/CI
-- tests and verification
-- migration risks
-
-### work
-
-For lightweight daily work logs.
-
-Focus:
-
-- summarize meaningful Git commits into natural Chinese work items
-- group related commits by module or task
-- keep only what was done today or in the selected commit range
-- filter merge commits, temporary commits, pure formatting, repeated noise, and overly detailed implementation notes
-- output a simple section like `2026-05-20` / `今日工作内容` / one sentence per item
+- `common/pre-commit.md` settles existing worktree changes before log generation.
+- Each workflow prompt defines its own target file and Git behavior.
+- The log stage should only stage and commit its target log file.
+- Product and tech workflows create and push version tags by default.
+- Worklog commits and pushes by default but does not create a tag.
+- Use explicit user instructions such as `no-push`, `不推送`, or `不要 push` when a workflow should skip pushing.

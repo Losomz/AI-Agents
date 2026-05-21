@@ -9,7 +9,9 @@
 ├── README.md           # 本文档
 ├── models.json         # 自定义 provider 配置
 └── extensions/         # 扩展脚本
-    ├── blog/           # /blog 日志生成入口
+    ├── blog/           # /blog 文件化日志工作流入口
+    │   ├── common/     # 通用流程提示词
+    │   └── workflows/  # 可发现的日志类型提示词
     ├── git/            # /git Git 操作入口
     └── subagent/       # 子 agent 扩展
         ├── index.ts
@@ -98,24 +100,29 @@ export YUNYI_API_KEY="your-actual-key"
 
 `extensions/blog/` 提供单入口 `/blog` 命令，用来从 Git 历史生成不同受众的项目日志，避免占用 Pi 内置 `/changelog`。
 
-可用命令：
+`/blog` 现在走文件化工作流：`index.ts` 只负责扫描 `extensions/blog/workflows/*.md`、展示可选项，并拉起 `subagent` chain；具体写给谁、写哪个文件、是否提交、是否打 tag、是否 push 都由对应 Markdown workflow 的提示词决定。
+
+目录结构：
 
 ```text
-/blog             # 弹出菜单选择日志类型
-/blog product     # 面向消费者/玩家/用户的产品级更新日志
-/blog tech        # 面向技术人员的技术变更日志
-/blog work        # 面向公司内部的工作日志
+extensions/blog/
+├── common/pre-commit.md     # 日志前结余提交提示词
+└── workflows/
+    ├── product.md           # 面向消费者/玩家/用户；默认提交、打 tag、push
+    ├── tech.md              # 面向技术人员；默认提交、打 tag、push
+    └── work.md              # 面向公司内部；默认提交并 push，不打 tag
 ```
 
-默认输出文件：
+可用命令来自 workflow 文件：
 
 ```text
-docs/CHANGELOG.md       # product
-docs/TECH_CHANGELOG.md  # tech
-docs/WORKLOG.md         # work
+/blog             # 弹出菜单选择 workflows/*.md
+/blog product     # 运行 workflows/product.md
+/blog tech        # 运行 workflows/tech.md
+/blog work        # 运行 workflows/work.md
 ```
 
-默认只生成或更新文件，不自动 commit、tag、push；只有在用户明确要求发布/提交/打 tag/推送时才执行对应 Git 操作。
+新增日志类型时只需添加新的 `workflows/<name>.md`，不需要改 TypeScript。
 
 ## 子 Agent 配置
 
