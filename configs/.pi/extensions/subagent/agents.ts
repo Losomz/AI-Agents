@@ -8,12 +8,16 @@ import { fileURLToPath } from "node:url";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
+export type PlanModePolicy = "auto" | "explicit" | "deny";
+
+const READ_ONLY_TOOL_NAMES = new Set(["read", "grep", "find", "ls", "bash", "questionnaire"]);
 
 export interface AgentConfig {
 	name: string;
 	description: string;
 	tools?: string[];
 	model?: string;
+	planMode: PlanModePolicy;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -22,6 +26,13 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
 	projectAgentsDir: string | null;
+}
+
+function normalizePlanModePolicy(value: string | undefined, tools: string[] | undefined): PlanModePolicy {
+	const normalized = value?.trim().toLowerCase();
+	if (normalized === "auto" || normalized === "explicit" || normalized === "deny") return normalized;
+	if (tools && tools.length > 0 && tools.every((tool) => READ_ONLY_TOOL_NAMES.has(tool.toLowerCase()))) return "auto";
+	return "explicit";
 }
 
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
@@ -62,11 +73,14 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			.map((t: string) => t.trim())
 			.filter(Boolean);
 
+		const normalizedTools = tools && tools.length > 0 ? tools : undefined;
+
 		agents.push({
 			name,
 			description: frontmatter.description,
-			tools: tools && tools.length > 0 ? tools : undefined,
+			tools: normalizedTools,
 			model: frontmatter.model,
+			planMode: normalizePlanModePolicy(frontmatter.planMode, normalizedTools),
 			systemPrompt: body,
 			source,
 			filePath,

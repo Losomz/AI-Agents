@@ -14,11 +14,98 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type AgentScope, discoverAgents, findAgentByName } from "../subagent/agents.js";
 import { isSafeCommand } from "./utils.js";
 
 // Tools
-const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
+const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire", "subagent"];
 const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls", "questionnaire", "subagent"];
+
+type SubagentToolInput = {
+	agent?: string;
+	tasks?: Array<{ agent?: string }>;
+	chain?: Array<{ agent?: string }>;
+	agentScope?: AgentScope;
+};
+
+function getRequestedSubagentNames(input: SubagentToolInput): string[] {
+	const names = new Set<string>();
+	if (input.agent) names.add(input.agent);
+	for (const task of input.tasks ?? []) if (task.agent) names.add(task.agent);
+	for (const step of input.chain ?? []) if (step.agent) names.add(step.agent);
+	return Array.from(names);
+}
+
+function normalizeAgentScope(value: unknown): AgentScope {
+	return value === "user" || value === "both" || value === "project" ? value : "project";
+}
+
+function contentToText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((part) => {
+			if (typeof part === "string") return part;
+			if (part && typeof part === "object" && "text" in part && typeof part.text === "string") return part.text;
+			return "";
+		})
+		.filter(Boolean)
+		.join("\n");
+}
+
+function getLatestUserText(ctx: ExtensionContext): string {
+	const entries = ctx.sessionManager.getBranch();
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i] as { type?: string; message?: { role?: string; content?: unknown } };
+		if (entry.type === "message" && entry.message?.role === "user") {
+			return contentToText(entry.message.content);
+		}
+	}
+	return "";
+}
+
+function hasNegatedAgentMention(text: string, agentName: string): boolean {
+	const lowerText = text.toLowerCase();
+	const lowerName = agentName.toLowerCase();
+	const index = lowerText.indexOf(lowerName);
+	if (index < 0) return false;
+	const prefix = lowerText.slice(Math.max(0, index - 16), index);
+	return /(不要|别|禁止|不能|不允许|勿|do not|don't|dont|not)\s*$/.test(prefix);
+}
+
+function isExplicitlyRequestedByUser(ctx: ExtensionContext, agentName: string): boolean {
+	const latestUserText = getLatestUserText(ctx);
+	if (!latestUserText.toLowerCase().includes(agentName.toLowerCase())) return false;
+	return !hasNegatedAgentMention(latestUserText, agentName);
+}
+
+function validatePlanModeSubagentCall(input: SubagentToolInput, ctx: ExtensionContext): string | undefined {
+	const requestedNames = getRequestedSubagentNames(input);
+	if (requestedNames.length === 0) return undefined;
+
+	const agentScope = normalizeAgentScope(input.agentScope);
+	const { agents } = discoverAgents(ctx.cwd, agentScope);
+	const denied: string[] = [];
+	const needsExplicitUserRequest: string[] = [];
+
+	for (const agentName of requestedNames) {
+		const agent = findAgentByName(agents, agentName);
+		const policy = agent?.planMode ?? "explicit";
+		if (policy === "deny") denied.push(agentName);
+		else if (policy === "explicit") needsExplicitUserRequest.push(agentName);
+	}
+
+	if (denied.length > 0) {
+		return `Plan mode: subagent blocked by agent policy: ${denied.join(", ")}.`;
+	}
+
+	const missingExplicitRequest = needsExplicitUserRequest.filter((agentName) => !isExplicitlyRequestedByUser(ctx, agentName));
+	if (missingExplicitRequest.length > 0) {
+		return `Plan mode: writable or unrestricted subagents require an explicit user request. Blocked: ${missingExplicitRequest.join(", ")}. Ask the user to name the subagent if they want it to run.`;
+	}
+
+	return undefined;
+}
 
 export default function planModeExtension(pi: ExtensionAPI): void {
 	let planModeEnabled = false;
@@ -81,16 +168,23 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		handler: async (ctx) => togglePlanMode(ctx),
 	});
 
-	// Block destructive bash commands in plan mode
-	pi.on("tool_call", async (event) => {
-		if (!planModeEnabled || event.toolName !== "bash") return;
+	// Block destructive bash commands and unrequested writable subagents in plan mode
+	pi.on("tool_call", async (event, ctx) => {
+		if (!planModeEnabled) return;
 
-		const command = event.input.command as string;
-		if (!isSafeCommand(command)) {
-			return {
-				block: true,
-				reason: `Plan mode: command blocked (not allowlisted). Choose Execute or use /plan to disable plan mode first.\nCommand: ${command}`,
-			};
+		if (event.toolName === "bash") {
+			const command = event.input.command as string;
+			if (!isSafeCommand(command)) {
+				return {
+					block: true,
+					reason: `Plan mode: command blocked (not allowlisted). Choose Execute or use /plan to disable plan mode first.\nCommand: ${command}`,
+				};
+			}
+		}
+
+		if (event.toolName === "subagent") {
+			const reason = validatePlanModeSubagentCall(event.input as SubagentToolInput, ctx);
+			if (reason) return { block: true, reason };
 		}
 	});
 
@@ -131,11 +225,11 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				content: `<system-reminder>
 # Plan Mode - System Reminder
 
-CRITICAL: Plan mode ACTIVE - you are in READ-ONLY phase. STRICTLY FORBIDDEN:
-ANY file edits, modifications, or system changes. Do NOT use edit/write tools,
-and do NOT use bash or other tools to manipulate files. Commands may ONLY
-read, inspect, search, or analyze. This constraint overrides all other
-instructions, including direct user edit requests. ZERO exceptions.
+CRITICAL: Plan mode ACTIVE - the main agent is in READ-ONLY phase.
+STRICTLY FORBIDDEN for the main agent: ANY file edits, modifications, or system
+changes. Do NOT use edit/write tools, and do NOT use bash or other tools to
+manipulate files. Bash commands may ONLY read, inspect, search, or analyze.
+This constraint overrides all other instructions for the main agent.
 
 ---
 
@@ -154,14 +248,22 @@ You do NOT need to force a numbered plan or a specific "Plan:" section. Use the
 format that best fits the task: a short explanation, a concise checklist, a few
 bullets, or a structured plan are all acceptable.
 
+Subagent policy: you may proactively call only subagents whose frontmatter
+allows planMode: auto. Do NOT choose writable/unrestricted subagents yourself.
+If the user explicitly names a subagent and asks you to delegate a task to it,
+you may call that subagent; the subagent runs according to its own declared
+capabilities.
+
 ---
 
 ## Important
 
-The user indicated that they do not want you to execute yet. You MUST NOT make
-any edits, run any non-readonly tools, change configs, install dependencies,
-create files, or make commits. Only describe what you would do until the user
-chooses Execute or Execute with additional instructions.
+The user indicated that they do not want the main agent to execute yet. You MUST
+NOT make edits, run non-readonly bash commands, change configs, install
+dependencies, create files, or make commits from the main agent. Only describe
+what you would do until the user chooses Execute or Execute with additional
+instructions, except when the user explicitly delegates a task to a named
+subagent.
 </system-reminder>`,
 				display: false,
 			},

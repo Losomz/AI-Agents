@@ -128,6 +128,9 @@ docs/WORKLOG.md         # work
 name: General
 description: 一个用于研究复杂问题和执行多步骤任务的通用代理
 tools: read, grep, find, ls, bash, edit, write
+# plan mode 策略：auto = plan 下可主动调用；explicit = 用户点名才允许；deny = plan 下禁用
+# 不写时：纯只读工具推断为 auto，未声明工具或含写工具推断为 explicit
+planMode: explicit
 # 可选；不写则使用当前默认模型
 # model: provider/model
 ---
@@ -175,6 +178,18 @@ model: gpt-5.5
 #### Scout
 
 用于外部文档和依赖研究的只读代理。适合克隆依赖仓库到托管缓存、检查库源码，或在不修改工作区的情况下与 upstream 实现交叉对照。
+
+### Plan mode 策略
+
+子 agent 可通过 frontmatter 声明在 plan mode 下的行为：
+
+```yaml
+planMode: auto      # 主模型可在 plan mode 下主动调用
+planMode: explicit  # 只有用户明确点名该 agent 时才允许
+planMode: deny      # plan mode 下完全禁用
+```
+
+当前默认：`Explore`、`Scout` 为 `auto`；`General` 为 `explicit`。因此 plan mode 仍限制主对话只读，但用户可以明确要求 `General` 子进程执行提交等有副作用任务。
 
 ### Worktree 隔离
 

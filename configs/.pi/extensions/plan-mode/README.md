@@ -4,7 +4,7 @@ Read-only exploration mode for safe code analysis.
 
 ## Features
 
-- **Read-only tools**: Restricts available tools to read, bash, grep, find, ls, questionnaire
+- **Read-only tools + delegated subagents**: Restricts the main agent to read, bash, grep, find, ls, questionnaire, subagent
 - **Bash allowlist**: Only read-only bash commands are allowed
 - **Opencode-style reminder**: Strong read-only planning prompt, without forcing numbered plans
 - **Three-choice flow**: After each plan-mode turn, choose `Stay`, `Execute`, or `Execute with additional instructions`
@@ -30,9 +30,13 @@ Read-only exploration mode for safe code analysis.
 
 ### Plan Mode (Read-Only)
 
-- Only read-only tools are available.
+- Only read-only main-agent tools are available, plus `subagent` for delegation.
 - Bash commands are filtered through an allowlist.
-- The agent is instructed not to edit files, write files, install dependencies, commit changes, or otherwise change system state.
+- The main agent is instructed not to edit files, write files, install dependencies, commit changes, or otherwise change system state.
+- Subagents declare their own plan-mode policy in frontmatter:
+  - `planMode: auto` may be called proactively in plan mode.
+  - `planMode: explicit` may run only when the user explicitly names that agent.
+  - `planMode: deny` is never allowed in plan mode.
 - Numbered `Plan:` sections are not required and are not parsed.
 
 ### Execution Mode
@@ -53,7 +57,19 @@ Safe commands (allowed):
 
 Blocked commands:
 - File modification: `rm`, `mv`, `cp`, `mkdir`, `touch`
-- Git write: `git add`, `git commit`, `git push`
+- Git write from the main agent: `git add`, `git commit`, `git push`
 - Package install: `npm install`, `yarn add`, `pip install`
 - System: `sudo`, `kill`, `reboot`
 - Editors: `vim`, `nano`, `code`
+
+## Subagents in Plan Mode
+
+Plan mode does not hardcode subagent names. Each subagent declares its behavior in its markdown frontmatter:
+
+```yaml
+planMode: auto      # AI may proactively use it in plan mode
+planMode: explicit  # only if the user names this subagent
+planMode: deny      # never in plan mode
+```
+
+This lets read-only agents such as Explore/Scout run automatically, while writable agents such as General can still be used when the user explicitly asks, e.g. to delegate a commit without leaving the current main conversation.

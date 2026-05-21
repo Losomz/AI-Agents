@@ -5,13 +5,40 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { discoverAgents } from "../subagent/agents.js";
+
+const DEFAULT_COMMIT_AGENT = "General";
 
 const GIT_OPERATIONS = [
 	{ value: "commit", label: "commit", description: "Commit and push changes" },
 	{ value: "pull", label: "pull", description: "Pull from remote repository" },
 ];
 
-async function handleGitCommit(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
+function parseGitArgs(args: string): { operation: string; agent?: string } {
+	const parts = args.trim().split(/\s+/).filter(Boolean);
+	const operation = (parts.shift() ?? "").toLowerCase();
+	if (!operation) return { operation: "" };
+
+	let agent: string | undefined;
+	for (let i = 0; i < parts.length; i++) {
+		const part = parts[i];
+		if (part === "--agent" || part === "-a") {
+			agent = parts[i + 1];
+			i++;
+			continue;
+		}
+		if (!agent) agent = part;
+	}
+
+	return { operation, agent };
+}
+
+async function chooseCommitAgent(ctx: ExtensionContext, requestedAgent?: string): Promise<string | undefined> {
+	if (requestedAgent) return requestedAgent;
+	return DEFAULT_COMMIT_AGENT;
+}
+
+async function handleGitCommit(pi: ExtensionAPI, ctx: ExtensionContext, requestedAgent?: string): Promise<void> {
 	// Check git status
 	const { stdout: status, code: statusCode } = await pi.exec("git", ["status", "--porcelain"]);
 
@@ -29,8 +56,21 @@ async function handleGitCommit(pi: ExtensionAPI, ctx: ExtensionContext): Promise
 	const { stdout: diffCached } = await pi.exec("git", ["diff", "--cached"]);
 	const { stdout: diffUnstaged } = await pi.exec("git", ["diff"]);
 
-	// Build context message for AI
-	const contextMessage = `请帮我提交代码。
+	const agentName = await chooseCommitAgent(ctx, requestedAgent);
+	if (!agentName) {
+		ctx.ui.notify("Git commit cancelled", "info");
+		return;
+	}
+
+	// Build delegated task for the subagent. The main agent must not perform commit actions itself.
+	const commitTask = `你是本次 Git 提交任务的执行者，请在子 agent 进程内完整完成提交和推送。
+
+重要要求：
+
+- 你必须自己重新检查当前仓库状态，不能只依赖下面的快照。
+- 分析改动内容，生成合适的中文提交信息。
+- 然后执行 \`git add -A\`、\`git commit -m "提交信息"\`、\`git push\`。
+- 如果没有可提交内容、发生冲突、提交失败或推送失败，请停止并说明原因，不要让父 agent 代替执行。
 
 ## 提交信息格式要求
 
@@ -68,6 +108,21 @@ ${diffUnstaged || "(no unstaged changes)"}
 3. \`git push\` 推送
 
 如果有冲突或错误，通知我手动处理。`;
+
+	const contextMessage = `请立即调用 \`subagent\` 工具，把 Git 提交任务完整委派给指定子 agent：\`${agentName}\`。
+
+主 agent 不要执行 \`git add\`、\`git commit\`、\`git push\`，也不要自己完成提交；提交和推送必须由子 agent 进程完成。子 agent 返回后，请只用中文简要总结结果。
+
+参数：
+
+\`\`\`json
+{
+  "agent": ${JSON.stringify(agentName)},
+  "task": ${JSON.stringify(commitTask)},
+  "agentScope": "project",
+  "confirmProjectAgents": false
+}
+\`\`\``;
 
 	// Send message to AI
 	pi.sendUserMessage(contextMessage);
@@ -157,15 +212,25 @@ async function handleGitPull(pi: ExtensionAPI, ctx: ExtensionContext): Promise<v
 	}
 }
 
-function normalizeGitOperation(args: string): string {
-	return args.trim().toLowerCase();
-}
-
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("git", {
 		description: "Git operations",
 		getArgumentCompletions: (prefix: string) => {
+			const parts = prefix.trim().split(/\s+/).filter(Boolean);
 			const normalizedPrefix = prefix.trim().toLowerCase();
+
+			if (parts[0]?.toLowerCase() === "commit") {
+				const agentPrefix = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+				const discovery = discoverAgents(process.cwd(), "project");
+				const items = discovery.agents.map((agent) => ({
+					value: `commit ${agent.name}`,
+					label: agent.name,
+					description: `Use ${agent.name} subagent for commit`,
+				}));
+				const filtered = items.filter((item) => item.label.toLowerCase().startsWith(agentPrefix));
+				return filtered.length > 0 ? filtered : null;
+			}
+
 			const items = GIT_OPERATIONS.map((operation) => ({
 				value: operation.value,
 				label: operation.label,
@@ -175,7 +240,9 @@ export default function (pi: ExtensionAPI) {
 			return filtered.length > 0 ? filtered : null;
 		},
 		handler: async (args, ctx) => {
-			let operation = normalizeGitOperation(args);
+			const parsed = parseGitArgs(args);
+			let operation = parsed.operation;
+			let commitAgent = parsed.agent;
 
 			if (!operation) {
 				const choice = await ctx.ui.select(
@@ -190,7 +257,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (operation === "commit") {
-				await handleGitCommit(pi, ctx);
+				await handleGitCommit(pi, ctx, commitAgent);
 				return;
 			}
 
